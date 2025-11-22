@@ -1,0 +1,21 @@
+{
+  "name": "dev5-producto3-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend/issues"
+  },
+  "homepage": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend#readme"
+}
