@@ -13,9 +13,12 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend/issues"
   },
-  "homepage": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend#readme"
+  "homepage": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend#readme",
+  "dependencies": {
+    "express": "^5.1.0"
+  }
 }
