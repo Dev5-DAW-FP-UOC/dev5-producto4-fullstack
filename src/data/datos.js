@@ -2,6 +2,8 @@
 
 // Datos iniciales copiados/adaptados del producto 2
 
+export const CATEGORIAS = ["Todas", "Idiomas", "Deportes", "Profesiones"];
+
 export const USUARIOS_INICIALES = [
   {
     id: 1,
