@@ -1,3 +1,5 @@
+// src/server.js
+import "dotenv/config"; // Carga automáticamente .env
 import express from "express";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
