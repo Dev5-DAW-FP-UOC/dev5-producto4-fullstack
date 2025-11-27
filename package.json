@@ -23,6 +23,7 @@
   "dependencies": {
     "express": "^5.1.0",
     "graphql": "^16.12.0",
-    "graphql-http": "^1.22.4"
+    "graphql-http": "^1.22.4",
+    "mongodb": "^7.0.0"
   }
 }
