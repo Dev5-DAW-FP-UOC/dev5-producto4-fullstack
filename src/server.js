@@ -1,6 +1,7 @@
 import express from "express";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
+import { initMongoData } from "./services/almacenajeService.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -18,6 +19,8 @@ app.all(
     schema,
   })
 );
+
+await initMongoData();
 
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);

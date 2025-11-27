@@ -1,9 +1,43 @@
-// src/almacenajeService.js
+// src//services/almacenajeService.js
+import { getDb } from "../db/mongoClient.js";
 import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data/datos.js";
+import { SingleFieldSubscriptionsRule } from "graphql";
 
-let usuarios = [...USUARIOS_INICIALES];
-let voluntariados = [...VOLUNTARIADOS_INICIALES];
-let seleccionados = [];
+/**
+ * Helper para obtener el siguiente id numérico de una colección.
+ * Busca el doc con mayor "id" y suma 1.
+ */
+async function getSiguienteNumeroId(db, collectionName) {
+  const col = db.collection(collectionName);
+  const last = await col.find().sort({ id: -1 }).limit(1).toArray();
+  const currentMax = last.length && last[0].id ? last[0].id : 0;
+  return currentMax + 1;
+}
+
+/**
+ * Inicializa la base de datos con los datos de datos.js si está vacía.
+ */
+export async function initMongoData() {
+  const db = await getDb();
+  const usuariosCol = db.collection("usuarios");
+  const voluntariadosCol = db.collection("voluntariados");
+  const categoriasCol = db.collection("categorias");
+
+  if ((await usuariosCol.countDocuments()) === 0) {
+    await usuariosCol.insertMany(USUARIOS_INICIALES);
+    console.log("[Mongo] Usuarios iniciales insertados");
+  }
+
+  if ((await voluntariadosCol.countDocuments()) === 0) {
+    await voluntariadosCol.insertMany(VOLUNTARIADOS_INICIALES);
+    console.log("[Mongo] Voluntariados iniciales insertados");
+  }
+
+  if ((await categoriasCol.countDocuments()) === 0) {
+    await categoriasCol.insertMany(CATEGORIAS.map((nombre, index) => ({ id: index, nombre })));
+    console.log("[Mongo] Categorías iniciales insertadas");
+  }
+}
 
 // =============================
 //   USUARIOS
@@ -11,64 +45,67 @@ let seleccionados = [];
 
 // ------ CRUD - USUARIOS ------
 
-export function altaUsuario(nuevoUsuario) {
-  const existe = usuarios.some((u) => u.email === nuevoUsuario.email);
+export async function altaUsuario(nuevoUsuario) {
+  const db = await getDb();
+  const coleccionUsuarios = db.collection("usuarios");
+
+  const existe = await coleccionUsuarios.findOne({ email: nuevoUsuario.email });
   if (existe) {
     throw new Error("Ya existe este usuario con este email.");
   }
-  // Genera id incremental
-  const maxId = usuarios.reduce((max, u) => Math.max(max, u.id ?? 0), 0);
-  const usuarioConId = {
-    ...nuevoUsuario,
-    id: maxId + 1,
-  };
-  usuarios.push(usuarioConId);
-  return usuarioConId;
+
+  const siguienteId = await getSiguienteNumeroId(db, "usuarios");
+  const documento = { ...nuevoUsuario, id: siguienteId };
+
+  await coleccionUsuarios.insertOne(documento);
+  return documento;
 }
 
-export function listarUsuarios() {
-  return usuarios;
+export async function listarUsuarios() {
+  const db = await getDb();
+  return db.collection("usuarios").find().toArray();
 }
 
-export function buscarUsuarioPorEmail(email) {
-  return usuarios.find((u) => u.email === email) || null;
+export async function buscarUsuarioPorEmail(email) {
+  const db = await getDb();
+  return db.collection("usuarios").findOne({ email });
 }
 
-export function buscarUsuarioPorId(id) {
-  return usuarios.find((u) => u.id === id) || null;
+export async function buscarUsuarioPorId(id) {
+  const db = await getDb();
+  return db.collection("usuarios").findOne({ id });
 }
 
-export function modificarUsuario(emailOriginal, usuarioActualizado) {
-  const indice = usuarios.findIndex((u) => u.email === emailOriginal);
-  if (indice === -1) {
-    return false;
-  }
-  // Si se cambia el email, se comprueba que no existe ya
+export async function modificarUsuario(emailOriginal, usuarioActualizado) {
+  const db = await getDb();
+  const coleccionUsuarios = db.collection("usuarios");
+
+  // Si se cambia el email, se comprueba que no esté usado por otro usuario
   if (usuarioActualizado.email && usuarioActualizado.email !== emailOriginal) {
-    const emailUsuarioExiste = usuarios.some((u) => u.email === usuarioActualizado.email);
-    if (emailUsuarioExiste) {
+    const emailUsuarioExiste = await coleccionUsuarios.findOne({ email: usuarioActualizado.email });
+    if (emailUsuarioExiste && emailUsuarioExiste !== emailOriginal) {
       return false;
     }
   }
-  usuarios[indice] = {
-    ...usuarios[indice],
-    ...usuarioActualizado,
-  };
-  return true;
+  //
+  const resultado = await col.updateOne({ email: emailOriginal }, { $set: usuarioActualizado });
+  //
+  return resultado.matchedCount === 1;
 }
 
-export function borrarUsuario(email) {
-  const tamAntes = usuarios.length;
-  usuarios = usuarios.filter((u) => u.email !== email);
-  return usuarios.length < tamAntes;
+export async function borrarUsuario(email) {
+  const db = await getDb();
+  const resultado = await db.collection("usuarios").deleteOne({ email });
+  return resultado.matchedCount === 1;
 }
 
 // ------ LOGIN simple ------
 /**
  * Verifica email/password y devuelve el usuario o null.
  */
-export function loginUsuario(email, password) {
-  const usuario = usuarios.find((u) => u.email === email && u.password === password);
+export async function loginUsuario(email, password) {
+  const db = await getDb();
+  const usuario = await db.collection("usuarios").findOne({ email, password });
   return usuario || null;
 }
 
@@ -78,53 +115,46 @@ export function loginUsuario(email, password) {
 
 // ------ CRUD - VOLUNTARIADOS ------
 
-export function altaVoluntariado(nuevoVoluntariado) {
-  const maxId = voluntariados.reduce((max, v) => Math.max(max, v.id ?? 0), 0);
-  const voluntariadoConId = {
-    id: maxId + 1,
-    type: nuevoVoluntariado.type,
-    titulo: nuevoVoluntariado.titulo,
-    id_usuario: nuevoVoluntariado.id_usuario,
-    modalidad: nuevoVoluntariado.modalidad,
-    categoria: nuevoVoluntariado.categoria,
-    resumen: nuevoVoluntariado.resumen,
-    fecha: nuevoVoluntariado.fecha,
-  };
+export async function altaVoluntariado(nuevoVoluntariado) {
+  const db = await getDb();
+  const coleccionVoluntariados = db.collection("voluntariados");
 
-  voluntariados.push(voluntariadoConId);
-  return voluntariadoConId;
+  const siguientId = await getSiguienteNumeroId(db, "voluntariados");
+  const docuemento = { ...nuevoVoluntariado, id: siguientId };
+
+  await coleccionVoluntariados.insertOne(docuemento);
+  return docuemento;
 }
 
-export function listarVoluntariados() {
-  return voluntariados;
+export async function listarVoluntariados() {
+  const db = await getDb();
+  return db.collection("voluntariados").find().toArray();
 }
 
-export function modificarVoluntariado(id, voluntariadoActualizado) {
-  const indice = voluntariados.findIndex((v) => v.id === id);
-  if (indice === -1) {
-    return false;
-  }
-  voluntariados[indice] = {
-    ...voluntariados[indice],
-    ...voluntariadoActualizado,
-    id, // aseguramos que no se pierde el id
-  };
-  return true;
+export async function modificarVoluntariado(id, voluntariadoActualizado) {
+  const db = await getDb();
+  const coleccionVoluntariados = db.collection("voluntariados");
+
+  const resultado = await coleccionVoluntariados.updateOne({ id }, { $set: voluntariadoActualizado });
+  return resultado.matchedCount === 1;
 }
 
-export function borrarVoluntariado(id) {
-  const tamAntes = voluntariados.length;
-  voluntariados = voluntariados.filter((v) => v.id !== id);
-  return voluntariados.length < tamAntes;
+export async function borrarVoluntariado(id) {
+  const db = await getDb();
+  const resultado = await db.collection("voluntariados").deleteOne({ id });
+  return resultado.matchedCount === 1;
 }
 
 // Voluntariados de un usuario concreto
-export function voluntariadosPorUsuario(id_usuario) {
-  return voluntariados.filter((v) => v.id_usuario === id_usuario);
+export async function voluntariadosPorUsuario(id_usuario) {
+  const db = await getDb();
+  return db.collection("voluntariados").find({ id_usuario: id_usuario }).toArray();
 }
 
-export function getCategorias() {
-  return CATEGORIAS;
+export async function getCategorias() {
+  const db = await getDb();
+  const docs = await db.collection("categorias").find().sort({ id: 1 }).toArray();
+  return docs.map((c) => c.nombre);
 }
 
 /* =====================================
@@ -138,61 +168,46 @@ export function getCategorias() {
  * @param {number} id_voluntariado
  * @returns {Object} seleccionado creado { id, id_usuario, id_voluntariado }
  */
-export function guardarSeleccionado(id_usuario, id_voluntariado) {
-  const usuarioExiste = usuarios.some((u) => u.id === id_usuario);
+export async function guardarSeleccionado(id_usuario, id_voluntariado) {
+  const db = await getDb();
+  const coleccionSeleccionados = db.collection("seleccionados");
+  const coleccionUsuarios = db.collection("usuarios");
+  const coleccionVoluntariados = db.collection("voluntariados");
+
+  const usuarioExiste = await coleccionUsuarios.findOne({ id: id_usuario });
   if (!usuarioExiste) {
     throw new Error("Usuario no encontrado para id_usuario=" + id_usuario);
   }
 
-  const voluntariadoExiste = voluntariados.some((v) => v.id === id_voluntariado);
+  const voluntariadoExiste = await coleccionVoluntariados.findOne({ id: id_voluntariado });
   if (!voluntariadoExiste) {
     throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
   }
 
-  // Evitar duplicados opcionalmente (mismo usuario + mismo voluntariado)
-  const yaExiste = seleccionados.some((s) => s.id_usuario === id_usuario && s.id_voluntariado === id_voluntariado);
+  const yaExiste = await coleccionSeleccionados.findOne({ id_usuario, id_voluntariado });
   if (yaExiste) {
     throw new Error("Este voluntariado ya está seleccionado por este usuario.");
   }
 
-  const maxId = seleccionados.reduce((max, s) => Math.max(max, s.id ?? 0), 0);
+  const siguienteId = await getSiguienteNumeroId(db, "seleccionados");
+  const documento = { id: siguienteId, id_usuario, id_voluntariado };
 
-  const nuevoSeleccionado = {
-    id: maxId + 1,
-    id_usuario,
-    id_voluntariado,
-  };
-
-  seleccionados.push(nuevoSeleccionado);
-  return nuevoSeleccionado;
+  await coleccionSeleccionados.insertOne(documento);
+  return documento;
 }
 
-/**
- * Devuelve todos los voluntariados seleccionados.
- */
-export function listarSeleccionados() {
-  return seleccionados;
+export async function listarSeleccionados() {
+  const db = await getDb();
+  return db.collection("seleccionados").find().toArray();
 }
 
-/**
- * Devuelve los seleccionados de un usuario concreto.
- * @param {number} id_usuario
- * @returns {Array<{id, id_usuario, id_voluntariado}>}
- */
-export function seleccionadosPorUsuario(id_usuario) {
-  return seleccionados.filter((s) => s.id_usuario === id_usuario);
+export async function seleccionadosPorUsuario(id_usuario) {
+  const db = await getDb();
+  return db.collection("seleccionados").findOne({ id_usuario }).toArray();
 }
 
-/**
- * Borra un seleccionado por su id (id de la selección, no del voluntariado).
- * @param {number} id
- * @returns {boolean} true si se ha borrado, false si no existía
- */
-export function borrarSeleccionado(id) {
-  const indice = seleccionados.findIndex((s) => s.id === id);
-  if (indice === -1) {
-    return false;
-  }
-  seleccionados.splice(indice, 1);
-  return true;
+export async function borrarSeleccionado(id) {
+  const db = await getDb();
+  const resultado = await db.collection("seleccionados").deleteOne({ id });
+  return resultado.matchedCount === 1;
 }
