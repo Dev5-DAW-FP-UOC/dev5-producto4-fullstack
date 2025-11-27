@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend#readme",
   "dependencies": {
+    "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "graphql": "^16.12.0",
     "graphql-http": "^1.22.4",
