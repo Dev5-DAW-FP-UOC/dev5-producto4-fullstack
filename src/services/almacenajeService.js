@@ -1,11 +1,53 @@
 // src//services/almacenajeService.js
 import { getDb } from "../db/mongoClient.js";
 import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data/datos.js";
-import { SingleFieldSubscriptionsRule } from "graphql";
 
 /**
- * Helper para obtener el siguiente id numérico de una colección.
- * Busca el doc con mayor "id" y suma 1.
+ * @typedef {Object} Usuario
+ * @property {number} id            - Identificador numérico del usuario.
+ * @property {string} nombre        - Nombre del usuario.
+ * @property {string} email         - Email único del usuario.
+ * @property {string} password      - Contraseña en texto plano (solo para práctica).
+ * @property {string} rol           - Rol del usuario (ej. "admin", "user").
+ */
+
+/**
+ * @typedef {Object} Voluntariado
+ * @property {number} id            - Identificador numérico del voluntariado.
+ * @property {string} type          - Tipo de voluntariado (ej. "oferta", "demanda").
+ * @property {string} titulo        - Título del voluntariado.
+ * @property {number} id_usuario    - Id del usuario creador.
+ * @property {string} modalidad     - Modalidad (ej. "presencial", "online").
+ * @property {string} categoria     - Categoría del voluntariado.
+ * @property {string} resumen       - Descripción corta.
+ * @property {string} fecha         - Fecha en formato de texto.
+ */
+
+/**
+ * @typedef {Object} CategoriaDoc
+ * @property {number} id            - Identificador de la categoría.
+ * @property {string} nombre        - Nombre de la categoría.
+ */
+
+/**
+ * @typedef {Object} Seleccionado
+ * @property {number} id            - Identificador de la selección.
+ * @property {number} id_usuario    - Id del usuario que selecciona.
+ * @property {number} id_voluntariado - Id del voluntariado seleccionado.
+ */
+
+/* ========================================================================== */
+/*  Helpers de inicialización                                                 */
+/* ========================================================================== */
+
+/**
+ * Devuelve el siguiente id numérico para una colección.
+ * Busca el documento con mayor `id` y suma 1.
+ *
+ * @async
+ * @param {import("mongodb").Db} db - Instancia de base de datos.
+ * @param {string} collectionName   - Nombre de la colección.
+ * @returns {Promise<number>} Siguiente identificador numérico disponible.
  */
 async function getSiguienteNumeroId(db, collectionName) {
   const col = db.collection(collectionName);
@@ -15,7 +57,12 @@ async function getSiguienteNumeroId(db, collectionName) {
 }
 
 /**
- * Inicializa la base de datos con los datos de datos.js si está vacía.
+ * Inicializa la base de datos con los datos de `datos.js` si las colecciones
+ * se encuentran vacías. Esta función se ejecuta una sola vez al arrancar
+ * el servidor.
+ *
+ * @async
+ * @returns {Promise<void>}
  */
 export async function initMongoData() {
   const db = await getDb();
@@ -39,12 +86,21 @@ export async function initMongoData() {
   }
 }
 
-// =============================
-//   USUARIOS
-// =============================
+/* ========================================================================== */
+/*  USUARIOS - CRUD + LOGIN                                                   */
+/* ========================================================================== */
 
-// ------ CRUD - USUARIOS ------
+/* ------ CRUD - USUARIOS ------ */
 
+/**
+ * Crea un nuevo usuario.
+ * Lanza un error si ya existe otro usuario con el mismo email.
+ *
+ * @async
+ * @param {Omit<Usuario, "id">} nuevoUsuario - Datos del usuario sin el id.
+ * @returns {Promise<Usuario>} Usuario creado con id asignado.
+ * @throws {Error} Si ya existe un usuario con el mismo email.
+ */
 export async function altaUsuario(nuevoUsuario) {
   const db = await getDb();
   const coleccionUsuarios = db.collection("usuarios");
@@ -61,21 +117,51 @@ export async function altaUsuario(nuevoUsuario) {
   return documento;
 }
 
+/**
+ * Devuelve todos los usuarios registrados.
+ *
+ * @async
+ * @returns {Promise<Usuario[]>}
+ */
 export async function listarUsuarios() {
   const db = await getDb();
   return db.collection("usuarios").find().toArray();
 }
 
+/**
+ * Busca un usuario por su email.
+ *
+ * @async
+ * @param {string} email - Email del usuario.
+ * @returns {Promise<Usuario|null>} Usuario encontrado o null.
+ */
 export async function buscarUsuarioPorEmail(email) {
   const db = await getDb();
   return db.collection("usuarios").findOne({ email });
 }
 
+/**
+ * Busca un usuario por su id.
+ *
+ * @async
+ * @param {number} id - Identificador del usuario.
+ * @returns {Promise<Usuario|null>} Usuario encontrado o null.
+ */
 export async function buscarUsuarioPorId(id) {
   const db = await getDb();
   return db.collection("usuarios").findOne({ id });
 }
 
+/**
+ * Modifica los datos de un usuario localizando por su email original.
+ * Si se actualiza el email, se comprueba que no esté ya utilizado por otro usuario.
+ *
+ * @async
+ * @param {string} emailOriginal - Email actual del usuario.
+ * @param {Partial<Omit<Usuario, "id">>} usuarioActualizado - Campos a actualizar.
+ * @returns {Promise<boolean>} `true` si se ha modificado, `false` si no se ha encontrado
+ *                              o el email nuevo ya estaba en uso.
+ */
 export async function modificarUsuario(emailOriginal, usuarioActualizado) {
   const db = await getDb();
   const coleccionUsuarios = db.collection("usuarios");
@@ -93,15 +179,28 @@ export async function modificarUsuario(emailOriginal, usuarioActualizado) {
   return resultado.matchedCount === 1;
 }
 
+/**
+ * Borra un usuario por su email.
+ *
+ * @async
+ * @param {string} email - Email del usuario a eliminar.
+ * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
+ */
 export async function borrarUsuario(email) {
   const db = await getDb();
   const resultado = await db.collection("usuarios").deleteOne({ email });
   return resultado.matchedCount === 1;
 }
 
-// ------ LOGIN simple ------
+/* ------ LOGIN - USUARIOS ------ */
+
 /**
- * Verifica email/password y devuelve el usuario o null.
+ * Login sencillo: verifica el par email/password.
+ *
+ * @async
+ * @param {string} email - Email del usuario.
+ * @param {string} password - Contraseña en texto plano.
+ * @returns {Promise<Usuario|null>} Usuario autenticado o null si credenciales incorrectas.
  */
 export async function loginUsuario(email, password) {
   const db = await getDb();
@@ -109,12 +208,19 @@ export async function loginUsuario(email, password) {
   return usuario || null;
 }
 
-// ==================================
-//   VOLUNTARIADOS
-// ==================================
+/* ========================================================================== */
+/*  VOLUNTARIADOS - CRUD + CONSULTAS                                          */
+/* ========================================================================== */
 
-// ------ CRUD - VOLUNTARIADOS ------
+/* ------ CRUD - VOLUNTARIADOS ------ */
 
+/**
+ * Crea un nuevo voluntariado con id incremental.
+ *
+ * @async
+ * @param {Omit<Voluntariado, "id">} nuevoVoluntariado - Datos del voluntariado sin id.
+ * @returns {Promise<Voluntariado>} Voluntariado creado.
+ */
 export async function altaVoluntariado(nuevoVoluntariado) {
   const db = await getDb();
   const coleccionVoluntariados = db.collection("voluntariados");
@@ -126,11 +232,25 @@ export async function altaVoluntariado(nuevoVoluntariado) {
   return docuemento;
 }
 
+/**
+ * Devuelve todos los voluntariados.
+ *
+ * @async
+ * @returns {Promise<Voluntariado[]>}
+ */
 export async function listarVoluntariados() {
   const db = await getDb();
   return db.collection("voluntariados").find().toArray();
 }
 
+/**
+ * Modifica un voluntariado localizando por su id.
+ *
+ * @async
+ * @param {number} id - Identificador del voluntariado.
+ * @param {Partial<Omit<Voluntariado, "id">>} voluntariadoActualizado - Campos a actualizar.
+ * @returns {Promise<boolean>} `true` si se ha modificado, `false` si no existía.
+ */
 export async function modificarVoluntariado(id, voluntariadoActualizado) {
   const db = await getDb();
   const coleccionVoluntariados = db.collection("voluntariados");
@@ -139,34 +259,61 @@ export async function modificarVoluntariado(id, voluntariadoActualizado) {
   return resultado.matchedCount === 1;
 }
 
+/**
+ * Borra un voluntariado por su id.
+ *
+ * @async
+ * @param {number} id - Id del voluntariado.
+ * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
+ */
 export async function borrarVoluntariado(id) {
   const db = await getDb();
   const resultado = await db.collection("voluntariados").deleteOne({ id });
   return resultado.matchedCount === 1;
 }
 
-// Voluntariados de un usuario concreto
+/**
+ * Devuelve los voluntariados creados por un usuario concreto.
+ *
+ * @async
+ * @param {number} idUsuario - Id del usuario creador.
+ * @returns {Promise<Voluntariado[]>}
+ */
 export async function voluntariadosPorUsuario(id_usuario) {
   const db = await getDb();
   return db.collection("voluntariados").find({ id_usuario: id_usuario }).toArray();
 }
 
+/* ========================================================================== */
+/*  CATEGORÍAS                                                                */
+/* ========================================================================== */
+
+/**
+ * Devuelve la lista de nombres de categoría, en orden de id.
+ *
+ * @async
+ * @returns {Promise<string[]>} Array de nombres de categoría.
+ */
 export async function getCategorias() {
   const db = await getDb();
   const docs = await db.collection("categorias").find().sort({ id: 1 }).toArray();
   return docs.map((c) => c.nombre);
 }
 
-/* =====================================
- *  SELECCIONADOS - RELACIÓN USUARIO/VOLUNTARIADO
- * ===================================== */
+/* ========================================================================== */
+/*  SELECCIONADOS (relación usuario-voluntariado)                             */
+/* ========================================================================== */
 
 /**
  * Guarda un voluntariado como seleccionado por un usuario.
- * Comprueba que existan el usuario y el voluntariado.
- * @param {number} id_usuario
- * @param {number} id_voluntariado
- * @returns {Object} seleccionado creado { id, id_usuario, id_voluntariado }
+ * Comprueba que existan el usuario y el voluntariado y evita duplicados.
+ *
+ * @async
+ * @param {number} id_usuario      - Id del usuario.
+ * @param {number} id_voluntariado - Id del voluntariado.
+ * @returns {Promise<Seleccionado>} Documento de selección creado.
+ * @throws {Error} Si el usuario o el voluntariado no existen
+ *                 o si ya había una selección igual.
  */
 export async function guardarSeleccionado(id_usuario, id_voluntariado) {
   const db = await getDb();
@@ -196,16 +343,36 @@ export async function guardarSeleccionado(id_usuario, id_voluntariado) {
   return documento;
 }
 
+/**
+ * Lista todas las selecciones existentes.
+ *
+ * @async
+ * @returns {Promise<Seleccionado[]>}
+ */
 export async function listarSeleccionados() {
   const db = await getDb();
   return db.collection("seleccionados").find().toArray();
 }
 
+/**
+ * Lista las selecciones de un usuario concreto.
+ *
+ * @async
+ * @param {number} id_usuario - Id del usuario.
+ * @returns {Promise<Seleccionado[]>}
+ */
 export async function seleccionadosPorUsuario(id_usuario) {
   const db = await getDb();
   return db.collection("seleccionados").findOne({ id_usuario }).toArray();
 }
 
+/**
+ * Borra una selección por su id.
+ *
+ * @async
+ * @param {number} id - Id de la selección.
+ * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
+ */
 export async function borrarSeleccionado(id) {
   const db = await getDb();
   const resultado = await db.collection("seleccionados").deleteOne({ id });

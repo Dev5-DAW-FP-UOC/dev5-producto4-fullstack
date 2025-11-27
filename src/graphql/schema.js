@@ -30,6 +30,10 @@ import {
  *  TYPES
  * ===================================== */
 
+/**
+ * Type GraphQL que representa a un usuario del sistema.
+ * Equivale al modelo `Usuario` del backend.
+ */
 const UsuarioType = new GraphQLObjectType({
   name: "Usuario",
   fields: {
@@ -41,6 +45,10 @@ const UsuarioType = new GraphQLObjectType({
   },
 });
 
+/**
+ * Type GraphQL que representa un voluntariado.
+ * Equivale al modelo `Voluntariado` del backend.
+ */
 const VoluntariadoType = new GraphQLObjectType({
   name: "Voluntariado",
   fields: {
@@ -55,6 +63,10 @@ const VoluntariadoType = new GraphQLObjectType({
   },
 });
 
+/**
+ * Type GraphQL que representa la relación de selección
+ * entre un usuario y un voluntariado.
+ */
 const SeleccionadoType = new GraphQLObjectType({
   name: "Seleccionado",
   fields: {
@@ -68,6 +80,10 @@ const SeleccionadoType = new GraphQLObjectType({
  *  ROOT QUERY
  * ===================================== */
 
+/**
+ * Root Query de la API GraphQL.
+ * Define todas las operaciones de lectura.
+ */
 const RootQuery = new GraphQLObjectType({
   name: "Query",
   fields: {
@@ -133,6 +149,10 @@ const RootQuery = new GraphQLObjectType({
  *  ROOT MUTATION
  * ===================================== */
 
+/**
+ * Root Mutation de la API GraphQL.
+ * Define todas las operaciones de escritura (alta, modificación, borrado).
+ */
 const RootMutation = new GraphQLObjectType({
   name: "Mutation",
   fields: {
@@ -250,6 +270,9 @@ const RootMutation = new GraphQLObjectType({
  *  EXPORT SCHEMA
  * ===================================== */
 
+/**
+ * Esquema principal de GraphQL que combina Query y Mutation.
+ */
 export const schema = new GraphQLSchema({
   query: RootQuery,
   mutation: RootMutation,

@@ -36,3 +36,10 @@ Icon?
 # VS Code
 .vscode/
 .history/
+
+# =========================
+# OTROS
+# =========================
+
+# Archivo de servicio solo para pruebas en memoria
+src/services/almacenajeServiceMemoria.js
