@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: FP066_Producto3-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_FP066_Producto3_data:/data/db
+
+  mongo-express:
+    image: mongo-express
+    container_name: FP066_Producto3-mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    ports:
+      - "8081:8081"
+    environment:
+      # Nombre del servicio de Mongo en esta misma red de Docker
+      - ME_CONFIG_MONGODB_SERVER=mongo
+      - ME_CONFIG_MONGODB_PORT=27017
+
+      # Usuario/clave para entrar en la interfaz web de mongo-express
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin
+
+volumes:
+  mongo_FP066_Producto3_data:
