@@ -1,0 +1,45 @@
+# ==============================
+# Node / JavaScript
+# ==============================
+
+# Dependencias instaladas con npm
+node_modules/
+
+# =========================
+# Configuración
+# =========================
+.env
+
+# =========================
+# Sistema operativo (macOS)
+# =========================
+# Archivos típicos de macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Iconos de volumen externos
+Icon?
+._*
+
+# Carpeta de papelera en volúmenes externos
+.Trashes
+
+# Archivos de Spotlight
+.Spotlight-V100
+.fseventsd
+
+# =========================
+# Editor
+# =========================
+
+# VS Code
+.vscode/
+.history/
+
+# =========================
+# OTROS
+# =========================
+
+# Archivo de servicio solo para pruebas en memoria
+src/services/almacenajeServiceMemoria.js
