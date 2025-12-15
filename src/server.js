@@ -4,6 +4,8 @@ import express from "express";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
 import { initMongoData } from "./services/almacenajeService.js";
+import { connectMongoose } from "./db/mongoose.js";
+
 
 /**
  * Puerto en el que escucha la API HTTP.
@@ -39,6 +41,11 @@ app.all(
     schema,
   })
 );
+
+// Conectar Mongoose al arrancar el servidor
+
+await connectMongoose();
+
 
 // Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
 await initMongoData();
