@@ -1,29 +1,37 @@
 // src/graphql/schema.js
 
-import { GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLList, GraphQLBoolean, GraphQLInt, GraphQLNonNull } from "graphql";
+import {
+  GraphQLBoolean,
+  GraphQLInt,
+  GraphQLList,
+  GraphQLNonNull,
+  GraphQLObjectType,
+  GraphQLSchema,
+  GraphQLString,
+} from "graphql";
 
 import {
   // Usuarios
   altaUsuario,
-  listarUsuarios,
-  buscarUsuarioPorEmail,
-  buscarUsuarioPorId,
-  modificarUsuario,
-  borrarUsuario,
   // Voluntariados
   altaVoluntariado,
-  listarVoluntariados,
-  modificarVoluntariado,
+  borrarSeleccionado,
+  borrarUsuario,
   borrarVoluntariado,
-  loginUsuario,
-  voluntariadosPorUsuario,
+  buscarUsuarioPorEmail,
+  buscarUsuarioPorId,
   // Categorias
   getCategorias,
   // Seleccionados
   guardarSeleccionado,
   listarSeleccionados,
+  listarUsuarios,
+  listarVoluntariados,
+  loginUsuario,
+  modificarUsuario,
+  modificarVoluntariado,
   seleccionadosPorUsuario,
-  borrarSeleccionado,
+  voluntariadosPorUsuario,
 } from "../services/almacenajeService.js";
 
 /* =====================================
@@ -142,6 +150,15 @@ const RootQuery = new GraphQLObjectType({
       },
       resolve: (_, { id_usuario }) => seleccionadosPorUsuario(id_usuario),
     },
+
+    me: {
+      type: UsuarioType,
+      resolve: async (_p, _a, ctx) => {
+        const sUser = ctx?.req?.session?.user;
+        if (!sUser) return null;
+        return buscarUsuarioPorId(sUser.id); // debe devolver 1 usuario (objeto)
+      },
+    },
   },
 });
 
@@ -178,7 +195,8 @@ const RootMutation = new GraphQLObjectType({
         password: { type: GraphQLString },
         rol: { type: GraphQLString },
       },
-      resolve: (_, { emailOriginal, ...datosActualizados }) => modificarUsuario(emailOriginal, datosActualizados),
+      resolve: (_, { emailOriginal, ...datosActualizados }) =>
+        modificarUsuario(emailOriginal, datosActualizados),
     },
 
     borrarUsuario: {
@@ -197,11 +215,11 @@ const RootMutation = new GraphQLObjectType({
         email: { type: new GraphQLNonNull(GraphQLString) },
         password: { type: new GraphQLNonNull(GraphQLString) },
       },
-      resolve: (_, { email, password }) => {
-        const usuario = loginUsuario(email, password);
-        if (!usuario) {
-          throw new Error("Email o contraseña incorrectos");
-        }
+      resolve: async (_parent, { email, password }, ctx) => {
+        const usuario = await loginUsuario(email, password);
+        if (!usuario) throw new Error("Email o contraseña incorrectos");
+
+        ctx.req.session.user = { id: usuario.id, rol: usuario.rol };
         return usuario;
       },
     },
@@ -234,7 +252,8 @@ const RootMutation = new GraphQLObjectType({
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
       },
-      resolve: (_, { id, ...datosActualizados }) => modificarVoluntariado(id, datosActualizados),
+      resolve: (_, { id, ...datosActualizados }) =>
+        modificarVoluntariado(id, datosActualizados),
     },
 
     borrarVoluntariado: {
@@ -253,7 +272,8 @@ const RootMutation = new GraphQLObjectType({
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
         id_voluntariado: { type: new GraphQLNonNull(GraphQLInt) },
       },
-      resolve: (_, { id_usuario, id_voluntariado }) => guardarSeleccionado(id_usuario, id_voluntariado),
+      resolve: (_, { id_usuario, id_voluntariado }) =>
+        guardarSeleccionado(id_usuario, id_voluntariado),
     },
 
     borrarSeleccionado: {

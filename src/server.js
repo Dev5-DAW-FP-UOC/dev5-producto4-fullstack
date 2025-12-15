@@ -1,53 +1,47 @@
-// src/server.js
-import "dotenv/config"; // Carga automáticamente .env
+import "dotenv/config";
 import express from "express";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
 import { initMongoData } from "./services/almacenajeService.js";
+import { sessionMiddleware } from "./auth/session.js";
 import { connectMongoose } from "./db/mongoose.js";
 
+console.log("SERVER.JS CARGADO ✅");
 
-/**
- * Puerto en el que escucha la API HTTP.
- * Se puede sobreescribir con la variable de entorno `PORT`.
- * @type {number|string}
- */
 const app = express();
-
-/**
- * Instancia principal de la aplicación Express.
- * @type {import("express").Express}
- */
 const PORT = process.env.PORT || 4000;
 
-// Middleware para parsear JSON en peticiones HTTP.
 app.use(express.json());
+app.use(sessionMiddleware());
 
-/**
- * Ruta raíz de la API. Sirve como comprobación rápida
- * de que el servidor Express está levantado.
- */
-app.get("/", (_req, res) => {
-  res.send("API Volunet GraphQL funcionando");
+app.get("/debug-session", (req, res) => {
+  req.session.user = { id: 999, rol: "debug" };
+  res.setHeader("Cache-Control", "no-store");
+  res.json({
+    ok: true,
+    sessionID: req.sessionID,
+    cookieName: req.session?.cookie?.name,
+    user: req.session.user,
+  });
 });
 
-/**
- * Endpoint GraphQL.
- * Todas las peticiones a `/graphql` se procesan mediante `graphql-http`.
- */
+app.get("/", (_req, res) => res.send("API Volunet GraphQL funcionando"));
+
 app.all(
   "/graphql",
   createHandler({
     schema,
+    context: (req, res) => ({ 
+      req: req.raw,
+      res: res.raw ?? res, 
+    }),
   })
 );
 
-// Conectar Mongoose al arrancar el servidor
-
+// ✅ 1) conectar primero
 await connectMongoose();
 
-
-// Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
+// ✅ 2) luego seed
 await initMongoData();
 
 app.listen(PORT, () => {
