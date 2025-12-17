@@ -34,6 +34,26 @@ import {
   voluntariadosPorUsuario,
 } from "../services/almacenajeService.js";
 
+function getSessionUser(ctx) {
+  return ctx?.req?.session?.user ?? null;
+}
+
+function requireAuth(ctx) {
+  const u = getSessionUser(ctx);
+  if (!u) throw new Error("No autenticado");
+  return u;
+}
+
+function isAdmin(u) {
+  return u?.rol === "admin";
+}
+
+function requireAdmin(ctx) {
+  const u = requireAuth(ctx);
+  if (!isAdmin(u)) throw new Error("Acceso denegado: requiere rol admin");
+  return u;
+}
+
 /* =====================================
  *  TYPES
  * ===================================== */
@@ -98,37 +118,52 @@ const RootQuery = new GraphQLObjectType({
     // ----- USUARIOS -----
     usuarios: {
       type: new GraphQLList(UsuarioType),
-      resolve: () => listarUsuarios(),
+      resolve: (_p, _a, ctx) => {
+        requireAdmin(ctx);
+        return listarUsuarios();
+      },
     },
 
     usuarioPorEmail: {
       type: UsuarioType,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
+      args: { email: { type: new GraphQLNonNull(GraphQLString) } },
+      resolve: async (_p, { email }, ctx) => {
+        const u = requireAuth(ctx);
+        if (!isAdmin(u) && u.email !== email)
+          throw new Error("Acceso denegado");
+        return buscarUsuarioPorEmail(email);
       },
-      resolve: (_, { email }) => buscarUsuarioPorEmail(email),
     },
 
     usuarioPorId: {
       type: UsuarioType,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id }, ctx) => {
+        const u = requireAuth(ctx);
+        if (!isAdmin(u) && u.id !== id) throw new Error("Acceso denegado");
+        return buscarUsuarioPorId(id);
       },
-      resolve: (_, { id }) => buscarUsuarioPorId(id),
     },
 
     // ----- VOLUNTARIADOS -----
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
-      resolve: () => listarVoluntariados(),
+      resolve: async (_p, _a, ctx) => {
+        const u = requireAuth(ctx);
+        if (isAdmin(u)) return listarVoluntariados();
+        return voluntariadosPorUsuario(u.id);
+      },
     },
 
     voluntariadosPorUsuario: {
       type: new GraphQLList(VoluntariadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id_usuario }, ctx) => {
+        const u = requireAuth(ctx);
+        if (!isAdmin(u) && u.id !== id_usuario)
+          throw new Error("Acceso denegado");
+        return voluntariadosPorUsuario(id_usuario);
       },
-      resolve: (_, { id_usuario }) => voluntariadosPorUsuario(id_usuario),
     },
 
     // ----- CATEGORÍAS -----
@@ -140,15 +175,22 @@ const RootQuery = new GraphQLObjectType({
     // ----- SELECIONADOS -----
     seleccionados: {
       type: new GraphQLList(SeleccionadoType),
-      resolve: () => listarSeleccionados(),
+      resolve: async (_p, _a, ctx) => {
+        const u = requireAuth(ctx);
+        if (isAdmin(u)) return listarSeleccionados();
+        return seleccionadosPorUsuario(u.id);
+      },
     },
 
     seleccionadosPorUsuario: {
       type: new GraphQLList(SeleccionadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id_usuario }, ctx) => {
+        const u = requireAuth(ctx);
+        if (!isAdmin(u) && u.id !== id_usuario)
+          throw new Error("Acceso denegado");
+        return seleccionadosPorUsuario(id_usuario);
       },
-      resolve: (_, { id_usuario }) => seleccionadosPorUsuario(id_usuario),
     },
 
     me: {
@@ -183,7 +225,10 @@ const RootMutation = new GraphQLObjectType({
         password: { type: new GraphQLNonNull(GraphQLString) },
         rol: { type: new GraphQLNonNull(GraphQLString) },
       },
-      resolve: (_, args) => altaUsuario(args),
+      resolve: (_p, args, ctx) => {
+        requireAdmin(ctx);
+        return altaUsuario(args);
+      },
     },
 
     modificarUsuario: {
@@ -195,16 +240,21 @@ const RootMutation = new GraphQLObjectType({
         password: { type: GraphQLString },
         rol: { type: GraphQLString },
       },
-      resolve: (_, { emailOriginal, ...datosActualizados }) =>
-        modificarUsuario(emailOriginal, datosActualizados),
+      resolve: async (_p, { emailOriginal, ...datosActualizados }, ctx) => {
+        const u = requireAuth(ctx);
+        if (!isAdmin(u) && u.email !== emailOriginal)
+          throw new Error("Acceso denegado");
+        return modificarUsuario(emailOriginal, datosActualizados);
+      },
     },
 
     borrarUsuario: {
       type: GraphQLBoolean,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
+      args: { email: { type: new GraphQLNonNull(GraphQLString) } },
+      resolve: (_p, { email }, ctx) => {
+        requireAdmin(ctx);
+        return borrarUsuario(email);
       },
-      resolve: (_, { email }) => borrarUsuario(email),
     },
 
     // ----- LOGIN -----
@@ -219,7 +269,12 @@ const RootMutation = new GraphQLObjectType({
         const usuario = await loginUsuario(email, password);
         if (!usuario) throw new Error("Email o contraseña incorrectos");
 
-        ctx.req.session.user = { id: usuario.id, rol: usuario.rol };
+        ctx.req.session.user = {
+          id: usuario.id,
+          nombre: usuario.nombre,
+          email: usuario.email,
+          rol: usuario.rol,
+        };
         return usuario;
       },
     },
@@ -237,7 +292,10 @@ const RootMutation = new GraphQLObjectType({
         resumen: { type: new GraphQLNonNull(GraphQLString) },
         fecha: { type: new GraphQLNonNull(GraphQLString) },
       },
-      resolve: (_, args) => altaVoluntariado(args),
+      resolve: async (_p, args, ctx) => {
+        const u = requireAuth(ctx);
+        return altaVoluntariado({ ...args, id_usuario: u.id });
+      },
     },
 
     modificarVoluntariado: {
@@ -252,16 +310,36 @@ const RootMutation = new GraphQLObjectType({
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
       },
-      resolve: (_, { id, ...datosActualizados }) =>
-        modificarVoluntariado(id, datosActualizados),
+      resolve: async (_p, { id, ...datosActualizados }, ctx) => {
+        const u = requireAuth(ctx);
+
+        if (!isAdmin(u)) {
+          const misVol = await voluntariadosPorUsuario(u.id);
+          if (!misVol.some((v) => v.id === id))
+            throw new Error("Acceso denegado");
+          // extra: impedir cambiar el dueño
+          if ("id_usuario" in datosActualizados)
+            delete datosActualizados.id_usuario;
+        }
+
+        return modificarVoluntariado(id, datosActualizados);
+      },
     },
 
     borrarVoluntariado: {
       type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id }, ctx) => {
+        const u = requireAuth(ctx);
+
+        if (!isAdmin(u)) {
+          const misVol = await voluntariadosPorUsuario(u.id);
+          if (!misVol.some((v) => v.id === id))
+            throw new Error("Acceso denegado");
+        }
+
+        return borrarVoluntariado(id);
       },
-      resolve: (_, { id }) => borrarVoluntariado(id),
     },
 
     // ----- SELECCIONADOS -----
@@ -272,16 +350,26 @@ const RootMutation = new GraphQLObjectType({
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
         id_voluntariado: { type: new GraphQLNonNull(GraphQLInt) },
       },
-      resolve: (_, { id_usuario, id_voluntariado }) =>
-        guardarSeleccionado(id_usuario, id_voluntariado),
+      resolve: async (_p, { id_voluntariado }, ctx) => {
+        const u = requireAuth(ctx);
+        return guardarSeleccionado(u.id, id_voluntariado);
+      },
     },
 
     borrarSeleccionado: {
       type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id }, ctx) => {
+        const u = requireAuth(ctx);
+
+        if (!isAdmin(u)) {
+          const misSel = await seleccionadosPorUsuario(u.id);
+          if (!misSel.some((s) => s.id === id))
+            throw new Error("Acceso denegado");
+        }
+
+        return borrarSeleccionado(id);
       },
-      resolve: (_, { id }) => borrarSeleccionado(id),
     },
   },
 });
