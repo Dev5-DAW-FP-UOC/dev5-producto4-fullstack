@@ -3,6 +3,7 @@ import "dotenv/config"; // Carga automáticamente .env
 import express from "express";
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
+import { connectMongoose } from "./db/mongoose.js";
 import { initMongoData } from "./services/almacenajeService.js";
 
 /**
@@ -40,6 +41,7 @@ app.all(
   })
 );
 
+await connectMongoose();
 // Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
 await initMongoData();
 

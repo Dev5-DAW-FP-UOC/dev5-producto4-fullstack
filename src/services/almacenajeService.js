@@ -1,6 +1,10 @@
 // src//services/almacenajeService.js
-import { getDb } from "../db/mongoClient.js";
+
 import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data/datos.js";
+import { Usuario } from "../models/Usuario.js";
+import { Voluntariado } from "../models/Voluntariado.js";
+import { Categoria } from "../models/Categoria.js";
+import { Seleccionado } from "../models/Seleccionado.js";
 
 /**
  * @typedef {Object} Usuario
@@ -41,18 +45,20 @@ import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data
 /* ========================================================================== */
 
 /**
- * Devuelve el siguiente id numérico para una colección.
- * Busca el documento con mayor `id` y suma 1.
+ * Devuelve el siguiente id numérico disponible para un modelo Mongoose.
+ * Busca el documento con el mayor valor del campo `field` y suma 1.
  *
- * @async
- * @param {import("mongodb").Db} db - Instancia de base de datos.
- * @param {string} collectionName   - Nombre de la colección.
- * @returns {Promise<number>} Siguiente identificador numérico disponible.
+ * Nota: en concurrencia alta puede colisionar (dos altas simultáneas).
+ *
+ * @param {import("mongoose").Model} Model - Modelo Mongoose (Usuario, Voluntariado, etc.)
+ * @param {string} field - Nombre del campo numérico (por defecto "id")
+ * @returns {Promise<number>} siguiente id
  */
-async function getSiguienteNumeroId(db, collectionName) {
-  const col = db.collection(collectionName);
-  const last = await col.find().sort({ id: -1 }).limit(1).toArray();
-  const currentMax = last.length && last[0].id ? last[0].id : 0;
+export async function getSiguienteNumeroId(Model, field = "id") {
+  const last = await Model.findOne({}, { [field]: 1 })
+    .sort({ [field]: -1 })
+    .lean();
+  const currentMax = last?.[field] ?? 0;
   return currentMax + 1;
 }
 
@@ -65,24 +71,19 @@ async function getSiguienteNumeroId(db, collectionName) {
  * @returns {Promise<void>}
  */
 export async function initMongoData() {
-  const db = await getDb();
-  const usuariosCol = db.collection("usuarios");
-  const voluntariadosCol = db.collection("voluntariados");
-  const categoriasCol = db.collection("categorias");
-
-  if ((await usuariosCol.countDocuments()) === 0) {
-    await usuariosCol.insertMany(USUARIOS_INICIALES);
-    console.log("[Mongo] Usuarios iniciales insertados");
+  if ((await Usuario.countDocuments()) === 0) {
+    await Usuario.insertMany(USUARIOS_INICIALES);
+    console.log("[Mong/Mongoose] Usuarios iniciales insertados");
   }
 
-  if ((await voluntariadosCol.countDocuments()) === 0) {
-    await voluntariadosCol.insertMany(VOLUNTARIADOS_INICIALES);
-    console.log("[Mongo] Voluntariados iniciales insertados");
+  if ((await Voluntariado.countDocuments()) === 0) {
+    await Voluntariado.insertMany(VOLUNTARIADOS_INICIALES);
+    console.log("[Mongo/Mongoose] Voluntariados iniciales insertados");
   }
 
-  if ((await categoriasCol.countDocuments()) === 0) {
-    await categoriasCol.insertMany(CATEGORIAS.map((nombre, index) => ({ id: index, nombre })));
-    console.log("[Mongo] Categorías iniciales insertadas");
+  if ((await Categoria.countDocuments()) === 0) {
+    await Categoria.insertMany(CATEGORIAS.map((nombre, index) => ({ id: index, nombre })));
+    console.log("[Mongo/Mongoose] Categorías iniciales insertadas");
   }
 }
 
@@ -102,19 +103,22 @@ export async function initMongoData() {
  * @throws {Error} Si ya existe un usuario con el mismo email.
  */
 export async function altaUsuario(nuevoUsuario) {
-  const db = await getDb();
-  const coleccionUsuarios = db.collection("usuarios");
+  const email = nuevoUsuario.email?.toLowerCase().trim();
 
-  const existe = await coleccionUsuarios.findOne({ email: nuevoUsuario.email });
+  const existe = await Usuario.findOne({ email }).lean();
   if (existe) {
     throw new Error("Ya existe este usuario con este email.");
   }
 
-  const siguienteId = await getSiguienteNumeroId(db, "usuarios");
-  const documento = { ...nuevoUsuario, id: siguienteId };
+  const siguienteId = await getSiguienteNumeroId(Usuario);
+  const documento = await Usuario.create({
+    ...nuevoUsuario,
+    id: siguienteId,
+    email,
+    rol: nuevoUsuario.rol ?? "user",
+  });
 
-  await coleccionUsuarios.insertOne(documento);
-  return documento;
+  return documento.toObject();
 }
 
 /**
@@ -124,8 +128,7 @@ export async function altaUsuario(nuevoUsuario) {
  * @returns {Promise<Usuario[]>}
  */
 export async function listarUsuarios() {
-  const db = await getDb();
-  return db.collection("usuarios").find().toArray();
+  return Usuario.find().lean();
 }
 
 /**
@@ -136,8 +139,7 @@ export async function listarUsuarios() {
  * @returns {Promise<Usuario|null>} Usuario encontrado o null.
  */
 export async function buscarUsuarioPorEmail(email) {
-  const db = await getDb();
-  return db.collection("usuarios").findOne({ email });
+  return Usuario.findOne({ email: email.toLowerCase().trim() }).lean();
 }
 
 /**
@@ -148,8 +150,7 @@ export async function buscarUsuarioPorEmail(email) {
  * @returns {Promise<Usuario|null>} Usuario encontrado o null.
  */
 export async function buscarUsuarioPorId(id) {
-  const db = await getDb();
-  return db.collection("usuarios").findOne({ id });
+  return Usuario.findOne({ id: Number(id) }).lean();
 }
 
 /**
@@ -163,20 +164,19 @@ export async function buscarUsuarioPorId(id) {
  *                              o el email nuevo ya estaba en uso.
  */
 export async function modificarUsuario(emailOriginal, usuarioActualizado) {
-  const db = await getDb();
-  const coleccionUsuarios = db.collection("usuarios");
+  const emailOrig = emailOriginal.toLowerCase().trim();
 
-  // Si se cambia el email, se comprueba que no esté usado por otro usuario
-  if (usuarioActualizado.email && usuarioActualizado.email !== emailOriginal) {
-    const emailUsuarioExiste = await coleccionUsuarios.findOne({ email: usuarioActualizado.email });
-    if (emailUsuarioExiste && emailUsuarioExiste !== emailOriginal) {
-      return false;
+  if (usuarioActualizado.email) {
+    usuarioActualizado.email = usuarioActualizado.email.toLowerCase().trim();
+
+    if (usuarioActualizado.email !== emailOrig) {
+      const existe = await Usuario.findOne({ email: usuarioActualizado.email }).lean();
+      if (existe) return false;
     }
   }
-  //
-  const resultado = await col.updateOne({ email: emailOriginal }, { $set: usuarioActualizado });
-  //
-  return resultado.matchedCount === 1;
+
+  const res = await Usuario.updateOne({ email: emailOrig }, { $set: usuarioActualizado });
+  return res.matchedCount === 1;
 }
 
 /**
@@ -187,9 +187,8 @@ export async function modificarUsuario(emailOriginal, usuarioActualizado) {
  * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
  */
 export async function borrarUsuario(email) {
-  const db = await getDb();
-  const resultado = await db.collection("usuarios").deleteOne({ email });
-  return resultado.matchedCount === 1;
+  const resultado = await Usuario.deleteOne({ email: email.toLowerCase().trim() });
+  return resultado.deletedCount === 1;
 }
 
 /* ------ LOGIN - USUARIOS ------ */
@@ -203,8 +202,8 @@ export async function borrarUsuario(email) {
  * @returns {Promise<Usuario|null>} Usuario autenticado o null si credenciales incorrectas.
  */
 export async function loginUsuario(email, password) {
-  const db = await getDb();
-  const usuario = await db.collection("usuarios").findOne({ email, password });
+  const e = email.toLowerCase().trim();
+  const usuario = await Usuario.findOne({ email: e, password }).lean();
   return usuario || null;
 }
 
@@ -222,14 +221,14 @@ export async function loginUsuario(email, password) {
  * @returns {Promise<Voluntariado>} Voluntariado creado.
  */
 export async function altaVoluntariado(nuevoVoluntariado) {
-  const db = await getDb();
-  const coleccionVoluntariados = db.collection("voluntariados");
+  const siguienteId = await getSiguienteNumeroId(Voluntariado);
 
-  const siguientId = await getSiguienteNumeroId(db, "voluntariados");
-  const docuemento = { ...nuevoVoluntariado, id: siguientId };
+  const docuemento = await Voluntariado.create({
+    ...nuevoVoluntariado,
+    id: siguienteId,
+  });
 
-  await coleccionVoluntariados.insertOne(docuemento);
-  return docuemento;
+  return docuemento.toObject();
 }
 
 /**
@@ -239,8 +238,7 @@ export async function altaVoluntariado(nuevoVoluntariado) {
  * @returns {Promise<Voluntariado[]>}
  */
 export async function listarVoluntariados() {
-  const db = await getDb();
-  return db.collection("voluntariados").find().toArray();
+  return Voluntariado.find().lean();
 }
 
 /**
@@ -252,10 +250,7 @@ export async function listarVoluntariados() {
  * @returns {Promise<boolean>} `true` si se ha modificado, `false` si no existía.
  */
 export async function modificarVoluntariado(id, voluntariadoActualizado) {
-  const db = await getDb();
-  const coleccionVoluntariados = db.collection("voluntariados");
-
-  const resultado = await coleccionVoluntariados.updateOne({ id }, { $set: voluntariadoActualizado });
+  const resultado = await Voluntariado.updateOne({ id: Number(id) }, { $set: voluntariadoActualizado });
   return resultado.matchedCount === 1;
 }
 
@@ -267,9 +262,8 @@ export async function modificarVoluntariado(id, voluntariadoActualizado) {
  * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
  */
 export async function borrarVoluntariado(id) {
-  const db = await getDb();
-  const resultado = await db.collection("voluntariados").deleteOne({ id });
-  return resultado.matchedCount === 1;
+  const resultado = await Voluntariado.deleteOne({ id: Number(id) });
+  return resultado.deletedCount === 1;
 }
 
 /**
@@ -280,8 +274,7 @@ export async function borrarVoluntariado(id) {
  * @returns {Promise<Voluntariado[]>}
  */
 export async function voluntariadosPorUsuario(id_usuario) {
-  const db = await getDb();
-  return db.collection("voluntariados").find({ id_usuario: id_usuario }).toArray();
+  return Voluntariado.find({ id_usuario: Number(id_usuario) }).lean();
 }
 
 /* ========================================================================== */
@@ -295,8 +288,8 @@ export async function voluntariadosPorUsuario(id_usuario) {
  * @returns {Promise<string[]>} Array de nombres de categoría.
  */
 export async function getCategorias() {
-  const db = await getDb();
-  const docs = await db.collection("categorias").find().sort({ id: 1 }).toArray();
+  const docs = await Categoria.find({}, { nombre: 1, _id: 0 }).sort({ nombre: 1 }).lean();
+
   return docs.map((c) => c.nombre);
 }
 
@@ -316,31 +309,34 @@ export async function getCategorias() {
  *                 o si ya había una selección igual.
  */
 export async function guardarSeleccionado(id_usuario, id_voluntariado) {
-  const db = await getDb();
-  const coleccionSeleccionados = db.collection("seleccionados");
-  const coleccionUsuarios = db.collection("usuarios");
-  const coleccionVoluntariados = db.collection("voluntariados");
+  const userId = Number(id_usuario);
+  const volId = Number(id_voluntariado);
 
-  const usuarioExiste = await coleccionUsuarios.findOne({ id: id_usuario });
+  const usuarioExiste = await Usuario.findOne({ id: userId }).lean();
   if (!usuarioExiste) {
-    throw new Error("Usuario no encontrado para id_usuario=" + id_usuario);
+    throw new Error("Usuario no encontrado para id_usuario=" + userId);
   }
 
-  const voluntariadoExiste = await coleccionVoluntariados.findOne({ id: id_voluntariado });
+  const voluntariadoExiste = await Voluntariado.findOne({ id: volId }).lean();
   if (!voluntariadoExiste) {
-    throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
+    throw new Error("Voluntariado no encontrado para id_voluntariado=" + volId);
   }
 
-  const yaExiste = await coleccionSeleccionados.findOne({ id_usuario, id_voluntariado });
+  // Duplicados
+  const yaExiste = await Seleccionado.findOne({ id_usuario: userId, id_voluntariado: volId }).lean();
   if (yaExiste) {
     throw new Error("Este voluntariado ya está seleccionado por este usuario.");
   }
 
-  const siguienteId = await getSiguienteNumeroId(db, "seleccionados");
-  const documento = { id: siguienteId, id_usuario, id_voluntariado };
+  const siguienteId = await getSiguienteNumeroId(Seleccionado, "id");
 
-  await coleccionSeleccionados.insertOne(documento);
-  return documento;
+  const doc = await Seleccionado.create({
+    id: siguienteId,
+    id_usuario: userId,
+    id_voluntariado: volId,
+  });
+
+  return doc.toObject();
 }
 
 /**
@@ -350,8 +346,7 @@ export async function guardarSeleccionado(id_usuario, id_voluntariado) {
  * @returns {Promise<Seleccionado[]>}
  */
 export async function listarSeleccionados() {
-  const db = await getDb();
-  return db.collection("seleccionados").find().toArray();
+  return await Seleccionado.find().lean();
 }
 
 /**
@@ -362,8 +357,7 @@ export async function listarSeleccionados() {
  * @returns {Promise<Seleccionado[]>}
  */
 export async function seleccionadosPorUsuario(id_usuario) {
-  const db = await getDb();
-  return db.collection("seleccionados").findOne({ id_usuario }).toArray();
+  return await Seleccionado.find({ id_usuario: Number(id_usuario) }).lean();
 }
 
 /**
@@ -374,7 +368,6 @@ export async function seleccionadosPorUsuario(id_usuario) {
  * @returns {Promise<boolean>} `true` si se ha borrado, `false` si no existía.
  */
 export async function borrarSeleccionado(id) {
-  const db = await getDb();
-  const resultado = await db.collection("seleccionados").deleteOne({ id });
-  return resultado.matchedCount === 1;
+  const res = await Seleccionado.deleteOne({ id: Number(id) });
+  return res.deletedCount === 1;
 }
