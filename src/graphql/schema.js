@@ -26,6 +26,28 @@ import {
   borrarSeleccionado,
 } from "../services/almacenajeService.js";
 
+/* =========================
+ * Helpers: sesión y roles
+ * ========================= */
+function sanitizeUser(u) {
+  if (!u) return null;
+  // eslint-disable-next-line no-unused-vars
+  const { password, ...safe } = u;
+  return safe;
+}
+
+function requireAuth(ctx) {
+  const user = ctx?.req?.session?.user;
+  if (!user) throw new Error("No autenticado");
+  return user;
+}
+
+function requireAdmin(ctx) {
+  const user = requireAuth(ctx);
+  if (user.rol !== "admin") throw new Error("No autorizado (solo admin)");
+  return user;
+}
+
 /* =====================================
  *  TYPES
  * ===================================== */
@@ -40,7 +62,6 @@ const UsuarioType = new GraphQLObjectType({
     id: { type: GraphQLInt },
     nombre: { type: GraphQLString },
     email: { type: GraphQLString },
-    password: { type: GraphQLString },
     rol: { type: GraphQLString },
   },
 });
@@ -87,60 +108,98 @@ const SeleccionadoType = new GraphQLObjectType({
 const RootQuery = new GraphQLObjectType({
   name: "Query",
   fields: {
-    // ----- USUARIOS -----
+    // --- SESIÓN ----
+    me: {
+      type: UsuarioType,
+      resolve: (_parent, _args, ctx) => {
+        const user = ctx?.req?.session?.user;
+        return user ? sanitizeUser(user) : null;
+      },
+    },
+    // ----- USUARIOS (solo admin) -----
     usuarios: {
       type: new GraphQLList(UsuarioType),
-      resolve: () => listarUsuarios(),
+      resolve: async (_parent, _args, ctx) => {
+        requireAdmin(ctx);
+        const users = await listarUsuarios();
+        return users.map(sanitizeUser);
+      },
     },
 
     usuarioPorEmail: {
       type: UsuarioType,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
+      args: { email: { type: new GraphQLNonNull(GraphQLString) } },
+      resolve: async (_parent, { email }, ctx) => {
+        requireAdmin(ctx);
+        return sanitizeUser(await buscarUsuarioPorEmail(email));
       },
-      resolve: (_, { email }) => buscarUsuarioPorEmail(email),
     },
 
     usuarioPorId: {
       type: UsuarioType,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_parent, { id }, ctx) => {
+        requireAdmin(ctx);
+        return sanitizeUser(await buscarUsuarioPorId(id));
       },
-      resolve: (_, { id }) => buscarUsuarioPorId(id),
     },
 
-    // ----- VOLUNTARIADOS -----
+    // ----- VOLUNTARIADOS (admin: todos | user: solo los suyos) -----
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
-      resolve: () => listarVoluntariados(),
+      resolve: async (_parent, _args, ctx) => {
+        const u = requireAuth(ctx);
+        if (u.rol === "admin") {
+          return await listarVoluntariados();
+        }
+        return await voluntariadosPorUsuario(u.id);
+      },
     },
 
     voluntariadosPorUsuario: {
       type: new GraphQLList(VoluntariadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_parent, { id_usuario }, ctx) => {
+        const u = requireAuth(ctx);
+        if (u.rol === "admin") {
+          return await voluntariadosPorUsuario(id_usuario);
+        }
+        if (u.id !== id_usuario) throw new Error("No autorizado");
+        return await voluntariadosPorUsuario(id_usuario);
       },
-      resolve: (_, { id_usuario }) => voluntariadosPorUsuario(id_usuario),
     },
 
-    // ----- CATEGORÍAS -----
+    // ----- CATEGORÍAS (cualquiera autenticado) -----
     categorias: {
       type: new GraphQLList(GraphQLString),
-      resolve: () => getCategorias(),
+      resolve: async (_parent, _args, ctx) => {
+        requireAuth(ctx);
+        return await getCategorias();
+      },
     },
 
     // ----- SELECIONADOS -----
+    // Admin puede ver todas las selecciones
     seleccionados: {
       type: new GraphQLList(SeleccionadoType),
-      resolve: () => listarSeleccionados(),
+      resolve: async (_p, _a, ctx) => {
+        requireAdmin(ctx);
+        return await listarSeleccionados();
+      },
     },
 
+    // Admin puede pedir cualquier usuario; user solo las suyas
     seleccionadosPorUsuario: {
       type: new GraphQLList(SeleccionadoType),
       args: {
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
       },
-      resolve: (_, { id_usuario }) => seleccionadosPorUsuario(id_usuario),
+      resolve: async (_p, { id_usuario }, ctx) => {
+        const u = requireAuth(ctx);
+        if (u.rol === "admin") return await seleccionadosPorUsuario(id_usuario);
+        if (u.id !== id_usuario) throw new Error("No autorizado");
+        return await seleccionadosPorUsuario(id_usuario);
+      },
     },
   },
 });
@@ -156,17 +215,53 @@ const RootQuery = new GraphQLObjectType({
 const RootMutation = new GraphQLObjectType({
   name: "Mutation",
   fields: {
-    // ----- USUARIOS -----
+    // ----- LOGIN / LOGOUT ----
+    login: {
+      type: UsuarioType,
+      args: {
+        email: { type: new GraphQLNonNull(GraphQLString) },
+        password: { type: new GraphQLNonNull(GraphQLString) },
+      },
+      resolve: async (_parent, { email, password }, ctx) => {
+        const usuario = await loginUsuario(email, password);
+        if (!usuario) throw new Error("Email o contraseña incorrectos");
 
+        ctx.req.session.user = {
+          id: usuario.id,
+          nombre: usuario.nombre,
+          email: usuario.email,
+          rol: usuario.rol,
+        };
+
+        return sanitizeUser(usuario);
+      },
+    },
+
+    logout: {
+      type: GraphQLBoolean,
+      resolve: async (_parent, _args, ctx) => {
+        const sess = ctx.req.session;
+        if (!sess) return true;
+
+        return await new Promise((resolve) => {
+          sess.destroy(() => resolve(true));
+        });
+      },
+    },
+
+    // ----- USUARIOS (solo admin) -----
     crearUsuario: {
       type: UsuarioType,
       args: {
         nombre: { type: new GraphQLNonNull(GraphQLString) },
         email: { type: new GraphQLNonNull(GraphQLString) },
         password: { type: new GraphQLNonNull(GraphQLString) },
-        rol: { type: new GraphQLNonNull(GraphQLString) },
+        rol: { type: GraphQLString }, // opcional; default "user" en modelo
       },
-      resolve: (_, args) => altaUsuario(args),
+      resolve: async (_parent, args, ctx) => {
+        requireAdmin(ctx);
+        return sanitizeUser(await altaUsuario(args));
+      },
     },
 
     modificarUsuario: {
@@ -178,48 +273,42 @@ const RootMutation = new GraphQLObjectType({
         password: { type: GraphQLString },
         rol: { type: GraphQLString },
       },
-      resolve: (_, { emailOriginal, ...datosActualizados }) => modificarUsuario(emailOriginal, datosActualizados),
+      resolve: async (_parent, { emailOriginal, ...usuarioActualizado }, ctx) => {
+        requireAdmin(ctx);
+        return await modificarUsuario(emailOriginal, usuarioActualizado);
+      },
     },
 
     borrarUsuario: {
       type: GraphQLBoolean,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email }) => borrarUsuario(email),
-    },
-
-    // ----- LOGIN -----
-
-    login: {
-      type: UsuarioType,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-        password: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email, password }) => {
-        const usuario = loginUsuario(email, password);
-        if (!usuario) {
-          throw new Error("Email o contraseña incorrectos");
-        }
-        return usuario;
+      args: { email: { type: new GraphQLNonNull(GraphQLString) } },
+      resolve: async (_parent, { email }, ctx) => {
+        requireAdmin(ctx);
+        return await borrarUsuario(email);
       },
     },
 
-    // ----- VOLUNTARIADOS -----
-
+    // --- VOLUNTARIADOS ---
+    // admin: puede crear para cualquier id_usuario
+    // user: solo puede crear/modificar/borrar los suyos
     crearVoluntariado: {
       type: VoluntariadoType,
       args: {
         type: { type: new GraphQLNonNull(GraphQLString) },
-        titulo: { type: new GraphQLNonNull(GraphQLString) },
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-        modalidad: { type: new GraphQLNonNull(GraphQLString) },
+        titulo: { type: new GraphQLNonNull(GraphQLString) },
         categoria: { type: new GraphQLNonNull(GraphQLString) },
+        modalidad: { type: new GraphQLNonNull(GraphQLString) },
         resumen: { type: new GraphQLNonNull(GraphQLString) },
         fecha: { type: new GraphQLNonNull(GraphQLString) },
       },
-      resolve: (_, args) => altaVoluntariado(args),
+      resolve: async (_parent, args, ctx) => {
+        const u = requireAuth(ctx);
+        if (u.rol !== "admin" && u.id !== args.id_usuario) {
+          throw new Error("No autorizado");
+        }
+        return await altaVoluntariado(args);
+      },
     },
 
     modificarVoluntariado: {
@@ -227,41 +316,78 @@ const RootMutation = new GraphQLObjectType({
       args: {
         id: { type: new GraphQLNonNull(GraphQLInt) },
         type: { type: GraphQLString },
+        id_usuario: { type: GraphQLInt }, // opcional, pero controlamos abajo
         titulo: { type: GraphQLString },
-        id_usuario: { type: GraphQLInt },
-        modalidad: { type: GraphQLString },
         categoria: { type: GraphQLString },
+        modalidad: { type: GraphQLString },
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
       },
-      resolve: (_, { id, ...datosActualizados }) => modificarVoluntariado(id, datosActualizados),
+      resolve: async (_parent, { id, ...actualizado }, ctx) => {
+        const u = requireAuth(ctx);
+
+        // Si NO es admin, NO se permite cambiar el id_usuario (propietario)
+        if (u.rol !== "admin" && actualizado.id_usuario && actualizado.id_usuario !== u.id) {
+          throw new Error("No autorizado");
+        }
+
+        // Si NO es admin, solo puede modificar voluntariados cuyo id_usuario sea el suyo.
+        if (u.rol !== "admin") {
+          const mis = await voluntariadosPorUsuario(u.id);
+          const esMio = mis.some((v) => v.id === id);
+          if (!esMio) throw new Error("No autorizado");
+        }
+
+        return await modificarVoluntariado(id, actualizado);
+      },
     },
 
     borrarVoluntariado: {
       type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_parent, { id }, ctx) => {
+        const u = requireAuth(ctx);
+
+        if (u.rol !== "admin") {
+          const mis = await voluntariadosPorUsuario(u.id);
+          const esMio = mis.some((v) => v.id === id);
+          if (!esMio) throw new Error("No autorizado");
+        }
+
+        return await borrarVoluntariado(id);
       },
-      resolve: (_, { id }) => borrarVoluntariado(id),
     },
 
-    // ----- SELECCIONADOS -----
-
-    crearSeleccionado: {
+    // --- SELECCIONADOS ---
+    guardarSeleccionado: {
       type: SeleccionadoType,
       args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
         id_voluntariado: { type: new GraphQLNonNull(GraphQLInt) },
       },
-      resolve: (_, { id_usuario, id_voluntariado }) => guardarSeleccionado(id_usuario, id_voluntariado),
+      resolve: async (_p, { id_voluntariado }, ctx) => {
+        const u = requireAuth(ctx);
+        // u.id es el id del usuario logueado
+        return await guardarSeleccionado(u.id, id_voluntariado);
+      },
     },
 
+    // Admin puede borrar cualquier selección por id
+    // User solo puede borrar selecciones que sean suyas (verificación extra)
     borrarSeleccionado: {
       type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_p, { id }, ctx) => {
+        const u = requireAuth(ctx);
+
+        if (u.rol !== "admin") {
+          // Verificamos que esa selección pertenece al user
+          const mias = await seleccionadosPorUsuario(u.id);
+          const esMia = mias.some((s) => s.id === id);
+          if (!esMia) throw new Error("No autorizado");
+        }
+
+        return await borrarSeleccionado(id);
       },
-      resolve: (_, { id }) => borrarSeleccionado(id),
     },
   },
 });
