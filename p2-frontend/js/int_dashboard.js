@@ -1,6 +1,7 @@
-// js/dashboard.js
+// js/int_dashboard.js
+import { gqlFetch } from "./api/graphqlClient.js";
 
-import { inicializarDatos, listarVoluntariados, getActiveUser, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion } from "./almacenaje.js";
+console.log("[int_dashboard] cargado");
 
 // Estado del dashboard
 const STATE = {
@@ -10,16 +11,77 @@ const STATE = {
   page: 1,
   perPage: 6,
   voluntariados: [],
-  seleccionados: []
+  seleccionados: [],
+
+  // ✅ sesión actual
+  me: null,
+
+  // ✅ mapa: id_voluntariado -> id_seleccion (para borrar bien)
+  _selMap: new Map(),
 };
 
 // Atajos simples
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 
+// funciones “API”
+async function apiMe() {
+  const data = await gqlFetch(`query { me { id nombre email rol } }`);
+  return data.me; // puede ser null
+}
+
+async function apiCategorias() {
+  const data = await gqlFetch(`query { categorias }`);
+  return data.categorias || ["Todas"];
+}
+
+async function apiVoluntariados() {
+  const data = await gqlFetch(`
+    query {
+      voluntariados {
+        id type titulo id_usuario modalidad categoria resumen fecha
+      }
+    }
+  `);
+  return data.voluntariados || [];
+}
+
+async function apiSeleccionadosPorUsuario(id_usuario) {
+  const data = await gqlFetch(
+    `query ($id_usuario:Int!) {
+      seleccionadosPorUsuario(id_usuario:$id_usuario){
+        id id_usuario id_voluntariado
+      }
+    }`,
+    { id_usuario }
+  );
+  return data.seleccionadosPorUsuario || [];
+}
+
+async function apiCrearSeleccionado(id_usuario, id_voluntariado) {
+  const data = await gqlFetch(
+    `mutation ($id_usuario:Int!, $id_voluntariado:Int!) {
+      crearSeleccionado(id_usuario:$id_usuario, id_voluntariado:$id_voluntariado){
+        id id_usuario id_voluntariado
+      }
+    }`,
+    { id_usuario, id_voluntariado }
+  );
+  return data.crearSeleccionado;
+}
+
+async function apiBorrarSeleccionado(id) {
+  const data = await gqlFetch(
+    `mutation ($id:Int!) { borrarSeleccionado(id:$id) }`,
+    { id }
+  );
+  return data.borrarSeleccionado;
+}
+
 function setNavbarUser(name) {
   let badge = $("#userBadge") || document.querySelector(".navbar-text");
   if (!badge) {
-    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
+    const container =
+      $("#nav") || document.querySelector(".navbar .container, .navbar");
     badge = document.createElement("span");
     badge.className = "navbar-text small text-muted";
     badge.id = "userBadge";
@@ -58,9 +120,9 @@ function categoryClass(cat) {
 }
 
 // Dibuja la estructura base
-function renderLayout(container) {
-  const categorias = getCategorias();
-  const filtroSeleccion = getSeleccion();
+async function renderLayout(container, categorias) {
+  const filtroSeleccion = ["Todos", "Seleccionados"];
+
   container.innerHTML = `
     <section class="mb-3">
       <input id="q" class="form-control form-control-lg" placeholder="Buscar por título, texto..." />
@@ -83,9 +145,9 @@ function renderLayout(container) {
           .join("")}
       </div>
       <div id="filtro-seleccion" class="d-flex flex-row justify-content-end">
-          ${(filtroSeleccion || ["Todos", "Seleccionados"])
-          .map(
-            (c) => `
+          ${filtroSeleccion
+            .map(
+              (c) => `
               <button
                 class="tab-pill tab-${c} ${c === STATE.filtroSeleccion ? "active" : ""}"
                 data-cat="${c}"
@@ -94,8 +156,8 @@ function renderLayout(container) {
                 ${c}
               </button>
             `
-          )
-          .join("")}
+            )
+            .join("")}
       </div>
     </section>
 
@@ -118,7 +180,13 @@ function renderLayout(container) {
 // HTML de una tarjeta
 function cardHTML(v) {
   const catCls = categoryClass(v.categoria);
-  const typeBadge = v.type === "oferta" ? `<span class="badge badge-oferta">Oferta</span>` : `<span class="badge badge-peticion">Petición</span>`;
+  const typeBadge =
+    v.type === "oferta"
+      ? `<span class="badge badge-oferta">Oferta</span>`
+      : `<span class="badge badge-peticion">Petición</span>`;
+
+  // ✅ antes era v.autor (NO existe). Usamos id_usuario
+  const autorTxt = v.id_usuario != null ? `Usuario #${v.id_usuario}` : "-";
 
   return `
     <div class="col" draggable="true" data-id="${v.id}">
@@ -129,7 +197,7 @@ function cardHTML(v) {
             <div class="small small-muted fw-semibold">${v.categoria}</div>
           </div>
           <h5 class="mb-1">${v.titulo}</h5>
-          <div class="small small-muted mb-2">por <strong>${v.autor}</strong> · ${v.modalidad}</div>
+          <div class="small small-muted mb-2">por <strong>${autorTxt}</strong> · ${v.modalidad}</div>
           <p class="flex-grow-1 mb-2">${v.resumen || ""}</p>
           <div class="d-flex justify-content-between align-items-center">
             <button class="btn btn-sm btn-outline-secondary" type="button">Ver detalle</button>
@@ -150,7 +218,12 @@ function applyFilters(list) {
   }
   if (STATE.query) {
     const q = STATE.query;
-    out = out.filter((v) => v.titulo.toLowerCase().includes(q) || (v.resumen || "").toLowerCase().includes(q) || (v.autor || "").toLowerCase().includes(q));
+    out = out.filter(
+      (v) =>
+        v.titulo.toLowerCase().includes(q) ||
+        (v.resumen || "").toLowerCase().includes(q) ||
+        String(v.id_usuario ?? "").toLowerCase().includes(q) // ✅ filtrar por autor (id_usuario)
+    );
   }
 
   return [...out].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
@@ -175,11 +248,11 @@ function buildPager(page, pages) {
   return html;
 }
 
-// Marca pestaña activa (solo clase, sin estilos inline para que sea más sencillo)
+// Marca pestaña activa
 function paintActiveTab() {
   document.querySelectorAll("#tabs .tab-pill").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.cat === STATE.categoria);
-  })
+  });
   document.querySelectorAll("#filtro-seleccion .tab-pill").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.cat === STATE.filtroSeleccion);
   });
@@ -192,29 +265,27 @@ function draw() {
 
   let listaBase;
 
- if (STATE.filtroSeleccion !== "Todos") {
-      // Si no está seleccionado Todos nos quedamos solo con los voluntariados de seleccionados
-      listaBase = STATE.seleccionados
-      .map(id => STATE.voluntariados.find(v => v.id === id))
-      .filter(v => v); // Filtramos para eliminar nulos o undefined si el ID no se encuentra.
-    
+  if (STATE.filtroSeleccion !== "Todos") {
+    listaBase = STATE.seleccionados
+      .map((id) => STATE.voluntariados.find((v) => v.id === id))
+      .filter((v) => v);
   } else {
-    // Si es "Todos", la lista base es la de Voluntariados que NO están seleccionados (el comportamiento original).
-    listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
+    listaBase = STATE.voluntariados.filter(
+      (v) => !STATE.seleccionados.includes(v.id)
+    );
   }
-  
+
   const filtered = applyFilters(listaBase || []);
   const { items, page, pages } = paginate(filtered, STATE.page, STATE.perPage);
 
   grid.innerHTML =
     items.map(cardHTML).join("") ||
     `
-    <div class="col">
-    </div>
-    <div class="col">
-      <div class="text-center text-secondary p-5 rounded">No hay resultados.</div>
-    </div>
-  `;
+      <div class="col"></div>
+      <div class="col">
+        <div class="text-center text-secondary p-5 rounded">No hay resultados.</div>
+      </div>
+    `;
 
   pager.innerHTML = buildPager(page, pages);
   pager.onclick = (e) => {
@@ -228,80 +299,97 @@ function draw() {
   paintActiveTab();
 }
 
-
-// Función para pintar las tarjetas en la zona de soltar
+// Seleccionados
 function renderSeleccionados() {
   const dropZoneSection = $("#drop-zone-section");
   const dropZone = $("#drop-zone");
   const placeholder = $("#drop-zone-placeholder");
 
-  //Si filtramos solo los seleccionados escondemos el "Selección de Voluntariados" 
   if (STATE.filtroSeleccion !== "Todos") {
-    dropZoneSection.style.display = 'none';
+    dropZoneSection.style.display = "none";
     return;
   }
-  
-  dropZoneSection.style.display = 'block';
-  
-  // Limpia solo las tarjetas seleccionadas anteriores, no el placeholder
-  dropZone.querySelectorAll('.card-selected-item').forEach(card => card.remove());
+
+  dropZoneSection.style.display = "block";
+  dropZone
+    .querySelectorAll(".card-selected-item")
+    .forEach((card) => card.remove());
 
   if (STATE.seleccionados.length === 0) {
-    placeholder.style.display = 'block';
+    placeholder.style.display = "block";
     return;
   }
 
-  placeholder.style.display = 'none';
+  placeholder.style.display = "none";
 
-  const seleccionadosHTML = STATE.seleccionados.map(id => {
-    const voluntariado = STATE.voluntariados.find(v => v.id === id);
-    if (!voluntariado) return '';
-        const catCls = categoryClass(voluntariado.categoria);
-    // Usamos una versión "simplificada" de la tarjeta para la zona de selección
-    return `
-      <div class="card card-selected-item card-ld ${catCls} p-2 shadow-sm" draggable="true" data-id-seleccionado="${id}">
-        <div class="d-flex justify-content-between align-items-center">
-          <div class="flex-grow-1">
-            <div class="fw-bold text-center small px-2">${voluntariado.titulo}</div>
-            <div class="text-center small px-2">${voluntariado.autor}</div>
-            <div class="text-center small px-2">${voluntariado.fecha}</div>
+  const seleccionadosHTML = STATE.seleccionados
+    .map((id) => {
+      const voluntariado = STATE.voluntariados.find((v) => v.id === id);
+      if (!voluntariado) return "";
+      const catCls = categoryClass(voluntariado.categoria);
+
+      const autorTxt =
+        voluntariado.id_usuario != null
+          ? `Usuario #${voluntariado.id_usuario}`
+          : "-";
+
+      return `
+        <div class="card card-selected-item card-ld ${catCls} p-2 shadow-sm" draggable="true" data-id-seleccionado="${id}">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="flex-grow-1">
+              <div class="fw-bold text-center small px-2">${voluntariado.titulo}</div>
+              <div class="text-center small px-2">${autorTxt}</div>
+              <div class="text-center small px-2">${voluntariado.fecha}</div>
+            </div>
+            <button type="button" class="btn-close small" data-id-quitar="${id}" aria-label="Quitar"></button>
           </div>
-          <button type="button" class="btn-close small" data-id-quitar="${id}" aria-label="Quitar"></button>
         </div>
-      </div>
-    `;
-  }).join('');
-  
-  dropZone.insertAdjacentHTML('beforeend', seleccionadosHTML);
+      `;
+    })
+    .join("");
+
+  dropZone.insertAdjacentHTML("beforeend", seleccionadosHTML);
+}
+
+async function comprobarSesion() {
+  try {
+    const me = await apiMe();
+    if (!me) {
+      window.location.href = "./login.html";
+      return null;
+    }
+    return me;
+  } catch (err) {
+    console.error("Error comprobando sesión", err);
+    window.location.href = "./login.html";
+    return null;
+  }
 }
 
 // Init
-document.addEventListener("DOMContentLoaded", () => {
-  initDashboard();
+document.addEventListener("DOMContentLoaded", async () => {
+  const me = await comprobarSesion();
+  if (!me) return;
+
+  STATE.me = me;
+  setNavbarUser(me.nombre);
+
+  await initDashboard();
 });
 
 async function initDashboard() {
-  // Inicializa datos base (usuarios, etc.)
-  await inicializarDatos();
-
-  // Usuario activo → navbar
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
-
-  // Dibuja la estructura del dashboard
   const app = $("#app");
-  renderLayout(app);
 
-  // Carga los voluntariados desde IndexedDB/localStorage (CRUD)
-  STATE.voluntariados = await listarVoluntariados();
+  const categorias = await apiCategorias();
+  await renderLayout(app, categorias);
 
-  //Carga los voluntariados seleccionados
-  const seleccionadosObjetos = await listarSeleccionados();
-  
-  // MODIFICACIÓN CLAVE: Convertimos los objetos en un array de IDs para el STATE
-  STATE.seleccionados = seleccionadosObjetos.map(v => v.id);
+  STATE.voluntariados = await apiVoluntariados();
 
-  // Listeners de búsqueda y pestañas
+  const selDocs = await apiSeleccionadosPorUsuario(STATE.me.id);
+
+  STATE.seleccionados = selDocs.map((s) => s.id_voluntariado);
+  STATE._selMap = new Map(selDocs.map((s) => [s.id_voluntariado, s.id]));
+
   $("#q").addEventListener("input", (e) => {
     STATE.query = e.target.value.trim().toLowerCase();
     STATE.page = 1;
@@ -324,65 +412,61 @@ async function initDashboard() {
     draw();
     renderSeleccionados();
   });
-    // Listeners de Drag & Drop
+
   addDragAndDropListeners();
 
-  // Primer pintado
   draw();
-  // Segundo pintado
   renderSeleccionados();
 }
 
 function addDragAndDropListeners() {
-    const dropZone = $("#drop-zone");
-    const grid = $("#grid");
+  const dropZone = $("#drop-zone");
+  const grid = $("#grid");
 
-    // 1. Dónde se puede soltar
-    dropZone.addEventListener("dragover", handleDragOver);
-    dropZone.addEventListener("dragleave", handleDragLeave);
-    dropZone.addEventListener("drop", handleDrop);
+  dropZone.addEventListener("dragover", handleDragOver);
+  dropZone.addEventListener("dragleave", handleDragLeave);
+  dropZone.addEventListener("drop", handleDrop);
 
-    grid.addEventListener("dragover", handleDragOverToGrid);
-    grid.addEventListener("dragleave", handleDragLeaveToGrid);
-    grid.addEventListener("drop", handleDropToGrid);
-    
-    // 2. Qué se está arrastrando (delegación de eventos)
-    grid.addEventListener("dragstart", handleDragStart);
+  grid.addEventListener("dragover", handleDragOverToGrid);
+  grid.addEventListener("dragleave", handleDragLeaveToGrid);
+  grid.addEventListener("drop", handleDropToGrid);
 
-    dropZone.addEventListener("dragstart", handleDragStartFromDropZone);
-    
-    // 3. Quitar de la selección (delegación de eventos)
-    dropZone.addEventListener("click", async (e) => {
-        const quitartBtn = e.target.closest('[data-id-quitar]');
-        if (!quitartBtn) return;
+  grid.addEventListener("dragstart", handleDragStart);
+  dropZone.addEventListener("dragstart", handleDragStartFromDropZone);
 
-        const id = Number(quitartBtn.dataset.idQuitar);
-        
-        try {
-            await borrarSeleccionados(id);
-        } catch (err) {
-            console.error("[dashboard] error eliminando en IndexedDB", err);
-        }
-        
-        STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
-        
-        draw();
-        renderSeleccionados();
-    });
+  dropZone.addEventListener("click", async (e) => {
+    const quitBtn = e.target.closest("[data-id-quitar]");
+    if (!quitBtn) return;
+
+    const idVol = Number(quitBtn.dataset.idQuitar);
+    const seleccionId = STATE._selMap.get(idVol);
+
+    if (seleccionId) {
+      try {
+        await apiBorrarSeleccionado(seleccionId);
+        STATE._selMap.delete(idVol);
+      } catch (err) {
+        console.error("[dashboard] error eliminando seleccionado en servidor", err);
+      }
+    }
+
+    STATE.seleccionados = STATE.seleccionados.filter((x) => x !== idVol);
+    draw();
+    renderSeleccionados();
+  });
 }
 
 function handleDragStart(e) {
-    // Guarda el ID de la tarjeta que estás arrastrando
-    const card = e.target.closest('[data-id]');
-    if (card) {
-        e.dataTransfer.setData("text/plain", card.dataset.id);
-        e.dataTransfer.setData("application/source", "grid");
-        e.dataTransfer.effectAllowed = "move";
-    }
+  const card = e.target.closest("[data-id]");
+  if (card) {
+    e.dataTransfer.setData("text/plain", card.dataset.id);
+    e.dataTransfer.setData("application/source", "grid");
+    e.dataTransfer.effectAllowed = "move";
+  }
 }
 
 function handleDragStartFromDropZone(e) {
-  const card = e.target.closest('[data-id-seleccionado]');
+  const card = e.target.closest("[data-id-seleccionado]");
   if (card) {
     const id = card.dataset.idSeleccionado;
     e.dataTransfer.setData("text/plain", id);
@@ -392,86 +476,79 @@ function handleDragStartFromDropZone(e) {
 }
 
 function handleDragOver(e) {
-    e.preventDefault(); 
-    const dropZone = $("#drop-zone");
-    if (e.dataTransfer.types.includes("application/source")) {
-        dropZone.classList.add("drag-over");
-        e.dataTransfer.dropEffect = "move";
-    } else {
-        e.dataTransfer.dropEffect = "none";
-    }
+  e.preventDefault();
+  const dropZone = $("#drop-zone");
+  if (e.dataTransfer.types.includes("application/source")) {
+    dropZone.classList.add("drag-over");
+    e.dataTransfer.dropEffect = "move";
+  } else {
+    e.dataTransfer.dropEffect = "none";
+  }
 }
 
 function handleDragOverToGrid(e) {
-    e.preventDefault();
-    const grid = $("#grid");
-    if (e.dataTransfer.types.includes("application/source")) {
-        grid.classList.add("drag-over-grid");
-        e.dataTransfer.dropEffect = "move";
-    } else {
-        e.dataTransfer.dropEffect = "none";
+  e.preventDefault();
+  const grid = $("#grid");
+  if (e.dataTransfer.types.includes("application/source")) {
+    grid.classList.add("drag-over-grid");
+    e.dataTransfer.dropEffect = "move";
+  } else {
+    e.dataTransfer.dropEffect = "none";
+  }
+}
+
+function handleDragLeave() {
+  $("#drop-zone")?.classList.remove("drag-over");
+}
+
+function handleDragLeaveToGrid() {
+  $("#grid")?.classList.remove("drag-over-grid");
+}
+
+async function handleDrop(e) {
+  e.preventDefault();
+  $("#drop-zone")?.classList.remove("drag-over");
+
+  const idVol = Number(e.dataTransfer.getData("text/plain"));
+  const source = e.dataTransfer.getData("application/source");
+  if (!idVol || source !== "grid") return;
+
+  if (!STATE.seleccionados.includes(idVol)) {
+    STATE.seleccionados.push(idVol);
+
+    try {
+      const created = await apiCrearSeleccionado(STATE.me.id, idVol);
+      STATE._selMap.set(idVol, created.id);
+    } catch (err) {
+      console.error("[dashboard] error creando seleccionado (API)", err);
     }
-}
 
-
-function handleDragLeave(e) {
-    const dropZone = $("#drop-zone");
-    dropZone.classList.remove("drag-over"); // Apaga la "bombilla" (el CSS)
-}
-
-function handleDragLeaveToGrid(e) {
-    const grid = $("#grid");
-    grid.classList.remove("drag-over-grid");
-}
-
-function handleDrop(e) {
-    e.preventDefault();
-    const dropZone = $("#drop-zone");
-    dropZone.classList.remove("drag-over"); // Apaga la "bombilla"
-
-    // Obtiene el ID que guardamos en handleDragStart
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    const source = e.dataTransfer.getData("application/source");
-    if (!id || source !== "grid") return;
-    
-    // Añade el ID al array de seleccionados (si no estaba ya)
-    if (!STATE.seleccionados.includes(id)) {
-        STATE.seleccionados.push(id);
-        
-        const voluntariado = STATE.voluntariados.find(v => v.id === id);
-        if(voluntariado){
-          guardarSeleccionados({...voluntariado, id: Number(voluntariado.id)});
-        }
-
-        // Vuelve a pintar las dos zonas para que se actualicen
-        draw(); // Vuelve a pintar la rejilla (la tarjeta arrastrada desaparecerá)
-        renderSeleccionados(); // Pinta la zona de selección (la tarjeta aparecerá aquí)
-    }
+    draw();
+    renderSeleccionados();
+  }
 }
 
 async function handleDropToGrid(e) {
-    e.preventDefault();
-    const grid = $("#grid");
-    grid.classList.remove("drag-over-grid");
+  e.preventDefault();
+  $("#grid")?.classList.remove("drag-over-grid");
 
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    const source = e.dataTransfer.getData("application/source");
+  const idVol = Number(e.dataTransfer.getData("text/plain"));
+  const source = e.dataTransfer.getData("application/source");
+  if (!idVol || source !== "dropzone") return;
 
-    if (!id || source !== "dropzone") return;
-    
-    // Si viene de la zona de selección, hay que quitarlo de seleccionados
-    if (STATE.seleccionados.includes(id)) {
-        try {
-            await borrarSeleccionados(id); // Eliminar de IndexedDB
-        } catch (err) {
-            console.error("[dashboard] error eliminando en IndexedDB", err);
-        }
-        
-        // Eliminar del estado local
-        STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
-        
-        // Volver a pintar ambas zonas
-        draw(); // Vuelve a pintar la rejilla (la tarjeta aparecerá aquí)
-        renderSeleccionados(); // Pinta la zona de selección (la tarjeta desaparecerá de aquí)
+  if (STATE.seleccionados.includes(idVol)) {
+    try {
+      const seleccionId = STATE._selMap.get(idVol);
+      if (seleccionId) {
+        await apiBorrarSeleccionado(seleccionId);
+        STATE._selMap.delete(idVol);
+      }
+    } catch (err) {
+      console.error("[dashboard] error borrando seleccionado (API)", err);
     }
+
+    STATE.seleccionados = STATE.seleccionados.filter((x) => x !== idVol);
+    draw();
+    renderSeleccionados();
+  }
 }

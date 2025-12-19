@@ -1,95 +1,204 @@
-// js/users.js
-import { inicializarDatos, altaUsuario, listarUsuarios, borrarUsuario, getActiveUser, logoutUsuario } from "./almacenaje.js";
+// ./js/int_usuarios.js
+// Usuarios (GraphQL) + sesión (cookie) + UI
+
+const API_URL = "http://localhost:4000/graphql";
 const $ = (s, ctx = document) => ctx.querySelector(s);
 
 function showMsg(text, type = "info") {
   const box = $("#msg");
   if (!box) return;
   box.innerHTML = `
-    <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+    <div class="alert alert-${type} alert-dismissible fade show py-2 mb-0" role="alert">
       ${text}
       <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>`;
 }
 
-function setNavbarUser(name) {
-  let badge = $("#userBadge") || document.querySelector(".navbar-text");
-  if (!badge) {
-    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
-    badge = document.createElement("span");
-    badge.className = "navbar-text small text-muted";
-    badge.id = "userBadge";
-    container?.appendChild(badge);
+async function fetchGraphQL(query, variables = {}) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    console.error("GraphQL HTTP error:", res.status, json);
+    throw new Error(`HTTP ${res.status}`);
   }
-  badge.textContent = name || "-no login-";
+  if (json.errors?.length) {
+    console.error("GraphQL errors:", json.errors);
+    throw new Error(json.errors[0]?.message || "GraphQL error");
+  }
+  return json.data;
 }
 
-function drawTable() {
-  const tbody = $("#tablaUsers tbody");
-  const arr = listarUsuarios();
+async function getMe() {
+  const q = `query { me { id nombre email rol } }`;
+  const data = await fetchGraphQL(q);
+  return data?.me ?? null;
+}
 
-  if (!arr.length) {
+async function listarUsuariosAPI() {
+  // ⚠️ Esta query requiere ADMIN (schema.js -> requireAdmin)
+  const q = `
+    query {
+      usuarios {
+        id
+        nombre
+        email
+        rol
+      }
+    }
+  `;
+  const data = await fetchGraphQL(q);
+  return data?.usuarios ?? [];
+}
+
+async function crearUsuarioAPI({ nombre, email, password, rol }) {
+  const m = `
+    mutation ($nombre: String!, $email: String!, $password: String!, $rol: String!) {
+      crearUsuario(nombre: $nombre, email: $email, password: $password, rol: $rol) {
+        id
+        nombre
+        email
+        rol
+      }
+    }
+  `;
+  const data = await fetchGraphQL(m, { nombre, email, password, rol });
+  return data?.crearUsuario ?? null;
+}
+
+async function borrarUsuarioAPI(email) {
+  const m = `
+    mutation ($email: String!) {
+      borrarUsuario(email: $email)
+    }
+  `;
+  const data = await fetchGraphQL(m, { email });
+  return !!data?.borrarUsuario;
+}
+
+// ---------------- UI helpers ----------------
+function setNavbarUser(name) {
+  const badge = $("#userBadge");
+  if (badge) badge.textContent = name || "-no login-";
+}
+
+function escapeHTML(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function drawTable(users) {
+  const tbody = $("#tablaUsers tbody");
+  if (!tbody) return;
+
+  if (!users?.length) {
     tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No hay usuarios.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = arr
+  tbody.innerHTML = users
     .map(
       (u) => `
-    <tr>
-      <td>${u.nombre || ""}</td>
-      <td>${u.email}</td>
-      <td class="text-end">
-        <button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${u.email}">Borrar</button>
-      </td>
-    </tr>`
+      <tr>
+        <td>${escapeHTML(u.nombre || "")}</td>
+        <td>${escapeHTML(u.email || "")}</td>
+        <td class="text-end">
+          <button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${escapeHTML(u.email)}">
+            Borrar
+          </button>
+        </td>
+      </tr>`
     )
     .join("");
 }
 
-function wireTableActions() {
+function wireTableActions(getState) {
   const tbody = $("#tablaUsers tbody");
-  tbody.addEventListener("click", (ev) => {
+  if (!tbody) return;
+
+  tbody.addEventListener("click", async (ev) => {
     const btn = ev.target.closest('button[data-action="del"]');
     if (!btn) return;
-    const id = btn.getAttribute("data-email");
-    const ok = confirm("¿Seguro que quieres borrar este usuario?");
+
+    const email = btn.getAttribute("data-email");
+    if (!email) return;
+
+    const ok = confirm(`¿Seguro que quieres borrar el usuario ${email}?`);
     if (!ok) return;
 
-    const activeUser = getActiveUser();
-    const isActiveUser = activeUser && activeUser.email === id;
+    try {
+      const deleted = await borrarUsuarioAPI(email);
+      if (!deleted) throw new Error("No se pudo borrar (¿existe el usuario?)");
 
-    borrarUsuario(id);
+      // Si borras tu propio usuario, el backend podría dejar sesión “inconsistente”
+      // (depende de cómo lo gestionéis). Aquí, como mínimo, refrescamos la tabla.
+      showMsg("Usuario eliminado", "success");
 
-    if(isActiveUser){
-      logoutUsuario();
-      setNavbarUser(null);
+      const users = await listarUsuariosAPI();
+      drawTable(users);
+    } catch (err) {
+      console.error(err);
+      showMsg(err.message || "Error al borrar usuario", "danger");
     }
-
-    drawTable();
-    showMsg("Usuario eliminado", "success");
   });
 }
 
+// ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  //await inicializarDatos();
+  let me = null;
 
-  // Usuario activo → navbar
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
+  try {
+    me = await getMe();
+  } catch (err) {
+    console.error(err);
+    me = null;
+  }
 
-  // Pintar tabla
-  drawTable();
-  wireTableActions();
+  if (!me) {
+    window.location.href = "./login.html";
+    return;
+  }
 
-  // Alta de usuarios
+  setNavbarUser(me.nombre);
+
+  // ✅ Si NO es admin, no tiene acceso a /usuarios
+  if (me.rol !== "admin") {
+    showMsg("Acceso denegado: solo el administrador puede gestionar usuarios.", "warning");
+    // Opcional: redirigir
+    // window.location.href = "./dashboard.html";
+    return;
+  }
+
+  // Cargar tabla
+  try {
+    const users = await listarUsuariosAPI();
+    drawTable(users);
+  } catch (err) {
+    console.error(err);
+    showMsg(err.message || "No se pudieron cargar usuarios.", "danger");
+  }
+
+  wireTableActions(() => ({ me }));
+
+  // Alta usuario
   const form = $("#formUser");
   if (form) {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const nombre = form.nombre.value.trim();
-      const email = form.email.value.trim();
-      const password = form.password.value;
+
+      const nombre = form.nombre?.value?.trim();
+      const email = form.email?.value?.trim();
+      const password = form.password?.value ?? "";
       const rol = form.rol ? form.rol.value : "user";
 
       if (!nombre || !email || !password) {
@@ -97,16 +206,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
       }
 
-      const usuario = { nombre, email, password, rol };
-
       try {
-        const ok = altaUsuario(usuario);
-        if (!ok) throw new Error("El email ya existe");
+        await crearUsuarioAPI({ nombre, email, password, rol });
         showMsg("Usuario creado correctamente", "success");
         form.reset();
-        document.getElementById("nombre")?.focus();
-        drawTable();
+        $("#nombre")?.focus();
+
+        const users = await listarUsuariosAPI();
+        drawTable(users);
       } catch (err) {
+        console.error(err);
         showMsg(err.message || "Error al crear el usuario", "danger");
       }
     });

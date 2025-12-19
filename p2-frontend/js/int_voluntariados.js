@@ -1,33 +1,111 @@
-// js/volunteers.js
-// Persistencia con IndexedDB + gráfico Canvas + UI
+// ./js/int_voluntariados.js
+// Voluntariados (GraphQL) + sesión (cookie) + Canvas
 
-import { listarUsuarios, altaVoluntariado, borrarVoluntariado, listarVoluntariados, getActiveUser, borrarSeleccionados } from "./almacenaje.js";
-
+const API_URL = "http://localhost:4000/graphql";
 const $ = (s, ctx = document) => ctx.querySelector(s);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-// ---------------- UI helpers ----------------
-function shortLabel(str, max = 18) {
-  const s = String(str || "");
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+function showMsg(text, type = "danger") {
+  const el = document.getElementById("msg");
+  if (!el) return;
+  el.innerHTML = `<div class="alert alert-${type} py-2 mb-0">${text}</div>`;
 }
 
-function setNavbarUser(name) {
-  let badge = $("#userBadge") || document.querySelector(".navbar-text");
-  if (!badge) {
-    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
-    badge = document.createElement("span");
-    badge.className = "navbar-text small text-muted";
-    badge.id = "userBadge";
-    container?.appendChild(badge);
+async function fetchGraphQL(query, variables = {}) {
+  const res = await fetch(API_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    console.error("GraphQL HTTP error:", res.status, json);
+    throw new Error(`HTTP ${res.status}`);
   }
-  badge.textContent = name || "-no login-";
+  if (json.errors?.length) {
+    console.error("GraphQL errors:", json.errors);
+    throw new Error(json.errors[0]?.message || "GraphQL error");
+  }
+  return json.data;
 }
+
+async function getMe() {
+  const q = `query { me { id nombre email rol } }`;
+  const data = await fetchGraphQL(q);
+  return data?.me ?? null;
+}
+
+async function listarVoluntariadosAPI() {
+  const q = `
+    query {
+      voluntariados {
+        id
+        type
+        titulo
+        id_usuario
+        nombre_usuario
+        modalidad
+        categoria
+        resumen
+        fecha
+      }
+    }
+  `;
+  const data = await fetchGraphQL(q);
+  return data?.voluntariados ?? [];
+}
+
+async function crearVoluntariadoAPI(args) {
+  const m = `
+    mutation CrearVol($type: String!, $titulo: String!, $id_usuario: Int!, $modalidad: String!, $categoria: String!, $resumen: String!, $fecha: String!) {
+      crearVoluntariado(
+        type: $type,
+        titulo: $titulo,
+        id_usuario: $id_usuario,
+        modalidad: $modalidad,
+        categoria: $categoria,
+        resumen: $resumen,
+        fecha: $fecha
+      ) {
+        id
+      }
+    }
+  `;
+  const data = await fetchGraphQL(m, args);
+  return data?.crearVoluntariado ?? null;
+}
+
+async function borrarVoluntariadoAPI(id) {
+  const m = `
+    mutation ($id: Int!) {
+      borrarVoluntariado(id: $id)
+    }
+  `;
+  const data = await fetchGraphQL(m, { id: Number(id) });
+  return !!data?.borrarVoluntariado;
+}
+
+// ---------------- UI helpers ----------------
+function setNavbarUser(name) {
+  const badge = $("#userBadge");
+  if (badge) badge.textContent = name || "-no login-";
+}
+
 function fmtFecha(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+  return (
+    String(d.getDate()).padStart(2, "0") +
+    "/" +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    "/" +
+    d.getFullYear()
+  );
 }
+
 function normCat(c) {
   const v = String(c || "").toLowerCase();
   if (v.startsWith("idio")) return "Idiomas";
@@ -36,20 +114,17 @@ function normCat(c) {
   return "Idiomas";
 }
 
+function shortLabel(str, max = 16) {
+  const s = String(str || "");
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
 function itemHTML(v) {
   const cat = normCat(v.categoria);
-  const typeBadge = String(v.type).toLowerCase().includes("pet") ? '<span class="badge bg-primary me-2">Petición</span>' : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
-
-  const trashBtn = `
-    <button class="btn-icon" data-action="del" title="Eliminar" aria-label="Eliminar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M3 6h18" stroke="#666" stroke-width="2" stroke-linecap="round"/>
-        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="#666" stroke-width="2"/>
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="#666" stroke-width="2"/>
-        <path d="M10 11v6M14 11v6" stroke="#666" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </button>
-  `;
+  const t = String(v.type || "oferta").toLowerCase();
+  const typeBadge = t.includes("pet")
+    ? '<span class="badge bg-primary me-2">Petición</span>'
+    : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
 
   return `
     <div class="item p-3 p-md-4 border rounded-3 cat-${cat}" data-id="${v.id}">
@@ -57,77 +132,88 @@ function itemHTML(v) {
         <div class="flex-grow-1">
           <div class="fw-bold mb-1">${typeBadge}${v.titulo}</div>
           <div class="text-muted small mb-2">
-  ${cat}${v.creadoPor ? " · Creado por: " + v.creadoPor : ""}
-</div>
-
-          <div>${v.descripcion || v.resumen || ""}</div>
+            ${cat} · Usuario: ${v.nombre_usuario || `U${v.id_usuario}`}
+          </div>
+          <div>${v.resumen || ""}</div>
         </div>
         <div class="text-end d-flex flex-column align-items-end gap-2">
           <small class="text-muted">${fmtFecha(v.fecha)}</small>
-          ${trashBtn}
+          <button class="btn-icon" data-action="del" title="Eliminar" aria-label="Eliminar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M3 6h18" stroke="#666" stroke-width="2" stroke-linecap="round"/>
+              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="#666" stroke-width="2"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="#666" stroke-width="2"/>
+              <path d="M10 11v6M14 11v6" stroke="#666" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
         </div>
       </div>
     </div>
   `;
 }
 
-// ---------- Estado en memoria (refleja IndexedDB) ----------
-const state = { vols: [] };
+// ---------------- State ----------------
+const state = { me: null, vols: [] };
 
-// ---------- Render listado + contador + gráfico ----------
+async function loadFromAPI() {
+  state.vols = (await listarVoluntariadosAPI()).map((v) => ({
+    ...v,
+    categoria: normCat(v.categoria),
+    type: String(v.type || "oferta").toLowerCase(),
+  }));
+}
+
 function drawList() {
   const list = $("#list");
   if (!list) return;
 
   if (!state.vols.length) {
     list.innerHTML = `<div class="text-muted">No hay registros.</div>`;
-    document.getElementById("countVol")?.replaceChildren(document.createTextNode("0 ítem(s)"));
+    $("#countVol")?.replaceChildren(document.createTextNode("0 ítem(s)"));
     drawCanvasChart();
     return;
   }
 
   list.innerHTML = state.vols.map(itemHTML).join("");
-  document.getElementById("countVol")?.replaceChildren(document.createTextNode(`${state.vols.length} ítem(s)`));
-
-  drawCanvasChart(); // actualizar gráfico siempre
+  $("#countVol")?.replaceChildren(
+    document.createTextNode(`${state.vols.length} ítem(s)`)
+  );
+  drawCanvasChart();
 }
 
 async function handleSubmit(e) {
   e.preventDefault();
   const f = e.currentTarget;
 
-  // 🔧 añade esta línea:
-  const active = getActiveUser();
+  const resumen = (f.descripcion?.value || "").trim();
+  const titulo = (f.titulo?.value || "").trim();
 
-  const nuevo = {
-    // id: (NO poner, lo genera IndexedDB)
-    titulo: (f.titulo?.value || "").trim(),
-    categoria: normCat(f.categoria?.value),
-    type: (f.tipo?.value || "oferta").toLowerCase(),
-    email: (f.email?.value || "").trim(),
-    descripcion: (f.descripcion?.value || "").trim(),
-    resumen: (f.descripcion?.value || "").trim(),
-    fecha: f.fecha?.value || todayISO(),
-    creadoPor: active?.nombre || "Anónimo", // ← ahora sí existe 'active'
-  };
-
-  if (!nuevo.titulo || !nuevo.descripcion) {
+  if (!titulo || !resumen) {
     alert("Rellena título y descripción.");
     return;
   }
 
+  const payload = {
+    type: (f.tipo?.value || "oferta").toLowerCase(),
+    titulo,
+    id_usuario: Number(state.me.id), // obligatorio por schema, aunque backend lo sobrescribe
+    modalidad: "presencial", // tu schema lo exige. Si tienes selector, lo conectamos.
+    categoria: normCat(f.categoria?.value),
+    resumen,
+    fecha: f.fecha?.value || todayISO(),
+  };
+
   try {
-    await altaVoluntariado(nuevo);
+    await crearVoluntariadoAPI(payload);
   } catch (err) {
-    console.error("IndexedDB put failed:", err);
-    alert("No se pudo guardar el voluntariado (ver consola).");
+    console.error(err);
+    showMsg(err.message || "No se pudo crear el voluntariado.", "danger");
     return;
   }
 
-  await loadFromDB(); // refresca state.vols
+  showMsg("Voluntariado creado correctamente.", "success");
+  await loadFromAPI();
   drawList();
-
-  document.dispatchEvent(new CustomEvent('voluntariadoChanged'));
 
   f.reset();
   const ff = $("#fecha");
@@ -137,144 +223,149 @@ async function handleSubmit(e) {
 async function handleListClick(e) {
   const btn = e.target.closest("[data-action='del']");
   if (!btn) return;
+
   const card = btn.closest("[data-id]");
   const idStr = card?.dataset.id;
   if (!idStr) return;
 
-  const id = Number(idStr); // id numérico (autoIncrement)
-  await borrarVoluntariado(id);
-    try {
-    await borrarSeleccionados(id); 
+  if (!confirm("¿Seguro que quieres borrar este voluntariado?")) return;
+
+  try {
+    await borrarVoluntariadoAPI(Number(idStr));
   } catch (err) {
-    //Como es probable que el voluntariado no estuviese seleccionado saltará el error
-    console.log("No fue necesario borrar de seleccionados o la clave no existía.");
+    console.error(err);
+    showMsg(err.message || "No se pudo borrar.", "danger");
+    return;
   }
-  await loadFromDB();
+
+  showMsg("Voluntariado borrado.", "success");
+  await loadFromAPI();
   drawList();
-
-  document.dispatchEvent(new CustomEvent('voluntariadoChanged'));
 }
 
-// ---------- Carga inicial + seed opcional desde datos.js ----------
-async function loadFromDB() {
-  state.vols = (await listarVoluntariados()).map(v => ({
-    ...v,
-    creadoPor: v.creadoPor || v.autor || "Anónimo" // <- usa autor si no existe creadoPor
-  }));
-}
-
-// ---------- Canvas ----------
-function countByType(arr) {
-  // cuenta TODO (existentes + nuevos), sin filtrar por usuario
-  const c = { oferta: 0, peticion: 0 };
-  (arr || []).forEach((v) => {
-    const t = String(v.type || v.tipo || "oferta").toLowerCase();
-    if (t.includes("pet")) c.peticion++;
-    else c.oferta++;
-  });
-  return c;
-}
-
+// ---------------- Canvas ----------------
 function drawCanvasChart() {
   const canvas = document.getElementById("chartVol");
   if (!canvas) return;
+
   const ctx = canvas.getContext("2d");
 
-  // Escalado HiDPI
+  // HiDPI
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || canvas.width;
-  const cssH = canvas.clientHeight || canvas.height;
+  const cssW = canvas.clientWidth || 720;
+  const cssH =
+    canvas.clientHeight || Number(canvas.getAttribute("height")) || 120;
+
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // Agrupar por usuario
-  const userMap = {};
-  (state.vols || []).forEach(v => {
-    const user = v.creadoPor || "Anónimo";
-    if (!userMap[user]) userMap[user] = { oferta: 0, peticion: 0 };
-    const t = String(v.type || v.tipo || "oferta").toLowerCase();
-    if (t.includes("pet")) userMap[user].peticion++;
-    else userMap[user].oferta++;
-  });
-
-  const users = Object.keys(userMap);
-  const values = users.map(u => [userMap[u].oferta, userMap[u].peticion]);
-
-  // Layout
-  const padX = 20, padTop = 18, padBottom = 28;
-  const W = cssW, H = cssH;
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0, 0, cssW, cssH);
   ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   ctx.textBaseline = "middle";
 
-  // Escala vertical
-  const maxVal = Math.max(1, ...values.flat());
-  const scale = (H - padTop - padBottom) / maxVal;
-  const gap = 16;
-  const barW = Math.min(40, (W - padX * 2 - gap * users.length) / (users.length * 2));
+  // Agrupa por id_usuario (porque tu schema no trae nombre)
+  // Agrupa por nombre_usuario (fallback_toggle)
+  const userMap = {};
+  for (const v of state.vols) {
+    const userLabel =
+      v.nombre_usuario || (v.id_usuario != null ? `U${v.id_usuario}` : "—");
 
-  // Eje X
+    if (!userMap[userLabel]) userMap[userLabel] = { oferta: 0, peticion: 0 };
+
+    if (String(v.type).includes("pet")) userMap[userLabel].peticion++;
+    else userMap[userLabel].oferta++;
+  }
+
+  const users = Object.keys(userMap);
+  if (!users.length) {
+    ctx.fillStyle = "#777";
+    ctx.textAlign = "center";
+    ctx.fillText("Sin datos para mostrar", cssW / 2, cssH / 2);
+    return;
+  }
+
+  const values = users.map((u) => [userMap[u].oferta, userMap[u].peticion]);
+
+  const padX = 20,
+    padTop = 12,
+    padBottom = 24;
+  const maxVal = Math.max(1, ...values.flat());
+  const scale = (cssH - padTop - padBottom) / maxVal;
+
+  const gap = 14;
+  const barW = Math.max(
+    10,
+    Math.min(34, (cssW - padX * 2 - gap * users.length) / (users.length * 2))
+  );
+
+  // eje
   ctx.strokeStyle = "#aaa";
   ctx.beginPath();
-  ctx.moveTo(padX, H - padBottom + 0.5);
-  ctx.lineTo(W - padX, H - padBottom + 0.5);
+  ctx.moveTo(padX, cssH - padBottom + 0.5);
+  ctx.lineTo(cssW - padX, cssH - padBottom + 0.5);
   ctx.stroke();
 
   users.forEach((user, i) => {
     const [oferta, peticion] = values[i];
     const x0 = padX + i * (2 * barW + gap);
 
-    // Oferta (azul)
     const h1 = oferta * scale;
     ctx.fillStyle = "#0d6efd";
-    ctx.fillRect(x0, H - padBottom - h1, barW, h1);
+    ctx.fillRect(x0, cssH - padBottom - h1, barW, h1);
 
-    // Petición (amarilla)
     const h2 = peticion * scale;
     ctx.fillStyle = "#ffc107";
-    ctx.fillRect(x0 + barW, H - padBottom - h2, barW, h2);
+    ctx.fillRect(x0 + barW, cssH - padBottom - h2, barW, h2);
 
-    // Valores arriba
     ctx.fillStyle = "#111";
     ctx.textAlign = "center";
-    ctx.fillText(String(oferta), x0 + barW / 2, H - padBottom - h1 - 10);
-    ctx.fillText(String(peticion), x0 + barW + barW / 2, H - padBottom - h2 - 10);
+    ctx.fillText(String(oferta), x0 + barW / 2, cssH - padBottom - h1 - 10);
+    ctx.fillText(
+      String(peticion),
+      x0 + barW + barW / 2,
+      cssH - padBottom - h2 - 10
+    );
 
-    // Nombre abajo
     ctx.fillStyle = "#555";
-    ctx.fillText(user, x0 + barW, H - padBottom + 12);
+    ctx.fillText(shortLabel(user, 10), x0 + barW, cssH - padBottom + 12);
   });
 }
 
-
-// ---------- Boot ----------
+// ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  // await inicializarDatos();
-
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
-
-  const form = document.getElementById("formVol");
-  if (form && active?.email) {
-    const emailInput = form.querySelector('input[name="email"], #email');
-    if (emailInput && !emailInput.value) {
-      emailInput.value = active.email;
-    }
+  // Nota: cambia disabled -> readonly en el HTML para que se vea siempre el email
+  try {
+    state.me = await getMe();
+  } catch (err) {
+    console.error(err);
+    state.me = null;
   }
+
+  if (!state.me) {
+    window.location.href = "./login.html";
+    return;
+  }
+
+  setNavbarUser(state.me.nombre);
+
+  const emailInput = $("#email");
+  if (emailInput && state.me.email) {
+    emailInput.value = state.me.email;
+  }
+
   const fch = $("#fecha");
   if (fch && !fch.value) fch.value = todayISO();
 
-  await loadFromDB();
-  drawList();
+  try {
+    await loadFromAPI();
+    drawList();
+  } catch (err) {
+    console.error(err);
+    showMsg(err.message || "No se pudieron cargar voluntariados.", "danger");
+  }
 
-  $("#formVol")?.addEventListener("submit", (e) => {
-    handleSubmit(e);
-  });
-  $("#list")?.addEventListener("click", (e) => {
-    handleListClick(e);
-  });
-
-  // Redibuja el canvas al redimensionar
-  window.addEventListener("resize", () => drawCanvasChart());
+  $("#formVol")?.addEventListener("submit", handleSubmit);
+  $("#list")?.addEventListener("click", handleListClick);
+  window.addEventListener("resize", drawCanvasChart);
 });

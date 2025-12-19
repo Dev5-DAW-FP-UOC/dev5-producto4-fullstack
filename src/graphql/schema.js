@@ -84,6 +84,7 @@ const VoluntariadoType = new GraphQLObjectType({
     type: { type: GraphQLString },
     titulo: { type: GraphQLString },
     id_usuario: { type: GraphQLInt },
+    nombre_usuario: { type: GraphQLString },
     modalidad: { type: GraphQLString },
     categoria: { type: GraphQLString },
     resumen: { type: GraphQLString },

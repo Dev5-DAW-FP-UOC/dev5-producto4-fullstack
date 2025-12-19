@@ -97,23 +97,25 @@ export async function altaVoluntariado(nuevoVoluntariado) {
   return doc.toObject();
 }
 
-export async function listarVoluntariados() {
-  return Voluntariado.find().lean();
-}
-
 export async function modificarVoluntariado(id, voluntariadoActualizado) {
   const res = await Voluntariado.updateOne({ id }, { $set: voluntariadoActualizado });
   return res.matchedCount === 1;
 }
 
+export async function listarVoluntariados() {
+  const vols = await Voluntariado.find().lean();
+  return attachNombreUsuario(vols);
+}
 export async function borrarVoluntariado(id) {
   const res = await Voluntariado.deleteOne({ id });
   return res.deletedCount === 1;
 }
 
 export async function voluntariadosPorUsuario(id_usuario) {
-  return Voluntariado.find({ id_usuario }).lean();
+  const vols = await Voluntariado.find({ id_usuario }).lean();
+  return attachNombreUsuario(vols);
 }
+
 
 /* ========================================================================== */
 /*  CATEGORÍAS                                                                */
@@ -142,6 +144,20 @@ export async function guardarSeleccionado(id_usuario, id_voluntariado) {
   const doc = await Seleccionado.create({ id, id_usuario, id_voluntariado });
   return doc.toObject();
 }
+
+// Enriquecer voluntariados con el nombre del usuario
+async function attachNombreUsuario(vols) {
+  if (!Array.isArray(vols) || vols.length === 0) return [];
+
+  const users = await Usuario.find({}, { id: 1, nombre: 1 }).lean();
+  const map = new Map(users.map(u => [u.id, u.nombre]));
+
+  return vols.map(v => ({
+    ...v,
+    nombre_usuario: map.get(v.id_usuario) || "Desconocido",
+  }));
+}
+
 
 export async function listarSeleccionados() {
   return Seleccionado.find().lean();

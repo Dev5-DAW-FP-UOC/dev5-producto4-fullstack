@@ -5,6 +5,8 @@ import { schema } from "./graphql/schema.js";
 import { initMongoData } from "./services/almacenajeService.js";
 import { sessionMiddleware } from "./auth/session.js";
 import { connectMongoose } from "./db/mongoose.js";
+import cors from "cors";
+
 
 console.log("SERVER.JS CARGADO ✅");
 
@@ -12,6 +14,19 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(express.json());
+
+app.use(
+  cors({
+    origin: ["http://127.0.0.1:5500", "http://localhost:5500"],
+    credentials: true, // necesario para cookies/sesión
+  })
+);
+
+// (opcional pero recomendado) responder preflight
+app.options(/.*/, cors());
+
+
+
 app.use(sessionMiddleware());
 
 app.get("/debug-session", (req, res) => {
