@@ -1,49 +1,46 @@
 // src/db/mongoClient.js
-import { MongoClient } from "mongodb";
+import mongoose from "mongoose";
 
 /**
  * URI de conexión a Mongo DB.
  * Se obtiene de la variable de entorno `MONGODB_URI`
  * y, si no existe, se usa una instancia local por defecto.
  * @type {string}
- * */
+ */
 const uri = process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017";
 
 /**
  * Nombre de la base de datos a utilizar
- * Se obtiene de `MONGODB_DB` o por defecto `volunet`.
+ * Se obtiene de `MONGODB_DB` o por defecto `volunet_prod4`.
  * @type {string}
  */
-const dbName = process.env.MONGODB_DB ?? "volunet";
+const dbName = process.env.MONGODB_DB ?? "volunet_prod4";
 
 /**
- * Cliente MongoDB compartido (singleton).
- * @type {MonogoClient | undefined}
+ * Conexión a MongoDB a través de Mongoose.
+ * @type {import("mongoose").Mongoose}
  */
 let client;
 
 /**
- * Instancia de la base de datos MongoDB.
- * @type {import ("mongodb").Db | undefined }
- */
-let db;
-
-/**
- * Devuelve la instancia de base de datos MongoDB.
+ * Devuelve la instancia de conexión Mongoose.
  * Implementa un patrón singleton: reutiliza la misma conexión
  * durante el ciclo de vida del proceso.
  *
  * @async
- * @returns {Promise<import("mongodb").Db>} Base de datos de MongoDB ya conectada.
+ * @returns {Promise<import("mongoose").Mongoose>} Conexión Mongoose activa
  */
 export async function getDb() {
-  if (db) return db;
+  if (client && mongoose.connection.readyState === 1) return client;
 
-  client = new MongoClient(uri);
-  await client.connect();
-  db = client.db(dbName);
-  console.log(`[Mongo] Conectado a ${uri}, DB "${dbName}"`);
-  return db;
+  try {
+    client = await mongoose.connect(`${uri}/${dbName}`);
+    console.log(`[Mongo] Conectado a ${uri}, DB "${dbName}"`);
+    return client;
+  } catch (err) {
+    console.error("[Mongo] Error de conexión:", err);
+    process.exit(1);
+  }
 }
 
 /**
@@ -52,9 +49,10 @@ export async function getDb() {
  * se cierra la conexión a MongoDB antes de terminar el proceso.
  */
 process.on("SIGINT", async () => {
-  if (client) {
-    await client.close();
-    console.log("[Mongo] Conexión Mongo cerrada");
-  }
+  // Comentado para desarrollo, para evitar cerrar conexión en restarts
+  // if (client) {
+  //   await mongoose.disconnect();
+  //   console.log("[Mongo] Conexión Mongo cerrada");
+  // }
   process.exit(0);
 });

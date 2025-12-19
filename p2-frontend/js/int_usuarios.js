@@ -1,5 +1,5 @@
 // js/users.js
-import { inicializarDatos, altaUsuario, listarUsuarios, borrarUsuario, getActiveUser, logoutUsuario } from "./almacenaje.js";
+import { listarUsuarios, altaUsuario, borrarUsuario as borrarUsuarioGQL, getActiveUser } from "./almacenaje.js";
 const $ = (s, ctx = document) => ctx.querySelector(s);
 
 function showMsg(text, type = "info") {
@@ -24,15 +24,14 @@ function setNavbarUser(name) {
   badge.textContent = name || "-no login-";
 }
 
-function drawTable() {
+async function drawTable() {
   const tbody = $("#tablaUsers tbody");
-  const arr = listarUsuarios();
-
+  if (!tbody) return;
+  const arr = await listarUsuarios();
   if (!arr.length) {
     tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No hay usuarios.</td></tr>`;
     return;
   }
-
   tbody.innerHTML = arr
     .map(
       (u) => `
@@ -49,7 +48,8 @@ function drawTable() {
 
 function wireTableActions() {
   const tbody = $("#tablaUsers tbody");
-  tbody.addEventListener("click", (ev) => {
+  if (!tbody) return;
+  tbody.addEventListener("click", async (ev) => {
     const btn = ev.target.closest('button[data-action="del"]');
     if (!btn) return;
     const id = btn.getAttribute("data-email");
@@ -59,33 +59,48 @@ function wireTableActions() {
     const activeUser = getActiveUser();
     const isActiveUser = activeUser && activeUser.email === id;
 
-    borrarUsuario(id);
+    await borrarUsuario(id);
 
     if(isActiveUser){
       logoutUsuario();
       setNavbarUser(null);
     }
 
-    drawTable();
+    await drawTable();
     showMsg("Usuario eliminado", "success");
   });
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-  //await inicializarDatos();
+// Patch: wireTableActions and altaUsuario are not implemented, so just remove user from table for demo
+async function borrarUsuario(email) {
+  const users = await listarUsuarios();
+  const user = users.find(u => u.email === email);
+  if (!user) return;
+  await borrarUsuarioGQL(user.id);
+}
 
+
+document.addEventListener("DOMContentLoaded", async () => {
   // Usuario activo → navbar
   const active = getActiveUser();
   setNavbarUser(active?.nombre);
 
+  // Set email placeholder to logged user
+  const form = $("#formUser");
+  if (form && active?.email) {
+    const emailInput = form.querySelector('input[name="email"], #email');
+    if (emailInput) {
+      emailInput.placeholder = active.email;
+    }
+  }
+
   // Pintar tabla
-  drawTable();
+  await drawTable();
   wireTableActions();
 
   // Alta de usuarios
-  const form = $("#formUser");
   if (form) {
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const nombre = form.nombre.value.trim();
       const email = form.email.value.trim();
@@ -97,17 +112,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
       }
 
-      const usuario = { nombre, email, password, rol };
-
       try {
-        const ok = altaUsuario(usuario);
-        if (!ok) throw new Error("El email ya existe");
+        await altaUsuario({ nombre, email, password, rol });
         showMsg("Usuario creado correctamente", "success");
         form.reset();
         document.getElementById("nombre")?.focus();
-        drawTable();
+        await drawTable();
       } catch (err) {
-        showMsg(err.message || "Error al crear el usuario", "danger");
+        showMsg("No se pudo crear el usuario: " + err.message, "danger");
       }
     });
   }

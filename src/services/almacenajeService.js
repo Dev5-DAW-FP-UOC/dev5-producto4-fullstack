@@ -1,6 +1,8 @@
 // src//services/almacenajeService.js
-import { getDb } from "../db/mongoClient.js";
 import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data/datos.js";
+import Usuario from "../models/Usuarios.js";
+import Voluntariado from "../models/Voluntariados.js";
+import Categoria from "../models/Categorias.js";
 
 /**
  * @typedef {Object} Usuario
@@ -41,22 +43,6 @@ import { CATEGORIAS, USUARIOS_INICIALES, VOLUNTARIADOS_INICIALES } from "../data
 /* ========================================================================== */
 
 /**
- * Devuelve el siguiente id numérico para una colección.
- * Busca el documento con mayor `id` y suma 1.
- *
- * @async
- * @param {import("mongodb").Db} db - Instancia de base de datos.
- * @param {string} collectionName   - Nombre de la colección.
- * @returns {Promise<number>} Siguiente identificador numérico disponible.
- */
-async function getSiguienteNumeroId(db, collectionName) {
-  const col = db.collection(collectionName);
-  const last = await col.find().sort({ id: -1 }).limit(1).toArray();
-  const currentMax = last.length && last[0].id ? last[0].id : 0;
-  return currentMax + 1;
-}
-
-/**
  * Inicializa la base de datos con los datos de `datos.js` si las colecciones
  * se encuentran vacías. Esta función se ejecuta una sola vez al arrancar
  * el servidor.
@@ -65,25 +51,39 @@ async function getSiguienteNumeroId(db, collectionName) {
  * @returns {Promise<void>}
  */
 export async function initMongoData() {
-  const db = await getDb();
-  const usuariosCol = db.collection("usuarios");
-  const voluntariadosCol = db.collection("voluntariados");
-  const categoriasCol = db.collection("categorias");
-
-  if ((await usuariosCol.countDocuments()) === 0) {
-    await usuariosCol.insertMany(USUARIOS_INICIALES);
-    console.log("[Mongo] Usuarios iniciales insertados");
+  // Usuarios
+  for (const u of USUARIOS_INICIALES) {
+    try {
+      await Usuario.create(u);
+      console.log(`Inserted user: ${u.nombre}`);
+    } catch (e) {
+      console.log(`User ${u.nombre} already exists`);
+    }
   }
+  console.log("[Mongo] Usuarios iniciales insertados");
 
-  if ((await voluntariadosCol.countDocuments()) === 0) {
-    await voluntariadosCol.insertMany(VOLUNTARIADOS_INICIALES);
-    console.log("[Mongo] Voluntariados iniciales insertados");
+  // Voluntariados
+  for (const v of VOLUNTARIADOS_INICIALES) {
+    try {
+      await Voluntariado.create(v);
+      console.log(`Inserted voluntariado: ${v.titulo}`);
+    } catch (e) {
+      console.log(`Voluntariado ${v.titulo} already exists`);
+    }
   }
+  console.log("[Mongo] Voluntariados iniciales insertados");
 
-  if ((await categoriasCol.countDocuments()) === 0) {
-    await categoriasCol.insertMany(CATEGORIAS.map((nombre, index) => ({ id: index, nombre })));
-    console.log("[Mongo] Categorías iniciales insertadas");
+  // Categorías
+  for (let i = 0; i < CATEGORIAS.length; i++) {
+    const nombre = CATEGORIAS[i];
+    try {
+      await Categoria.create({ id: i, nombre });
+      console.log(`Inserted categoria: ${nombre}`);
+    } catch (e) {
+      console.log(`Categoria ${nombre} already exists`);
+    }
   }
+  console.log("[Mongo] Categorías iniciales insertadas");
 }
 
 /* ========================================================================== */
@@ -239,8 +239,8 @@ export async function altaVoluntariado(nuevoVoluntariado) {
  * @returns {Promise<Voluntariado[]>}
  */
 export async function listarVoluntariados() {
-  const db = await getDb();
-  return db.collection("voluntariados").find().toArray();
+  const voluntariados = await Voluntariado.find().lean();
+  return voluntariados;
 }
 
 /**
@@ -363,7 +363,7 @@ export async function listarSeleccionados() {
  */
 export async function seleccionadosPorUsuario(id_usuario) {
   const db = await getDb();
-  return db.collection("seleccionados").findOne({ id_usuario }).toArray();
+  return db.collection("seleccionados").find({ id_usuario }).toArray();
 }
 
 /**

@@ -1,6 +1,19 @@
 // js/dashboard.js
 
-import { inicializarDatos, listarVoluntariados, getActiveUser, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion } from "./almacenaje.js";
+import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser } from "./almacenaje.js";
+// Helper: fetch current user from backend session
+async function fetchSessionUser() {
+  try {
+    const res = await fetch("http://localhost:4000/test", {
+      credentials: "include"
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.session?.user || null;
+  } catch {
+    return null;
+  }
+}
 
 // Estado del dashboard
 const STATE = {
@@ -17,7 +30,9 @@ const STATE = {
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 
 function setNavbarUser(name) {
+  console.log('setNavbarUser called with name:', name);
   let badge = $("#userBadge") || document.querySelector(".navbar-text");
+  console.log('badge found:', badge);
   if (!badge) {
     const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
     badge = document.createElement("span");
@@ -26,6 +41,7 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
+  console.log('badge textContent set to:', badge.textContent);
 }
 
 // Formatea "YYYY-MM-DD" a "dd/mm/yyyy"
@@ -58,8 +74,8 @@ function categoryClass(cat) {
 }
 
 // Dibuja la estructura base
-function renderLayout(container) {
-  const categorias = getCategorias();
+async function renderLayout(container) {
+  const categorias = await getCategorias();
   const filtroSeleccion = getSeleccion();
   container.innerHTML = `
     <section class="mb-3">
@@ -129,7 +145,7 @@ function cardHTML(v) {
             <div class="small small-muted fw-semibold">${v.categoria}</div>
           </div>
           <h5 class="mb-1">${v.titulo}</h5>
-          <div class="small small-muted mb-2">por <strong>${v.autor}</strong> · ${v.modalidad}</div>
+          <div class="small small-muted mb-2">por <strong>${v.autor?.nombre || 'Unknown'}</strong> · ${v.modalidad}</div>
           <p class="flex-grow-1 mb-2">${v.resumen || ""}</p>
           <div class="d-flex justify-content-between align-items-center">
             <button class="btn btn-sm btn-outline-secondary" type="button">Ver detalle</button>
@@ -150,7 +166,7 @@ function applyFilters(list) {
   }
   if (STATE.query) {
     const q = STATE.query;
-    out = out.filter((v) => v.titulo.toLowerCase().includes(q) || (v.resumen || "").toLowerCase().includes(q) || (v.autor || "").toLowerCase().includes(q));
+    out = out.filter((v) => v.titulo.toLowerCase().includes(q) || (v.resumen || "").toLowerCase().includes(q) || (v.autor?.nombre || "").toLowerCase().includes(q));
   }
 
   return [...out].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
@@ -263,7 +279,7 @@ function renderSeleccionados() {
         <div class="d-flex justify-content-between align-items-center">
           <div class="flex-grow-1">
             <div class="fw-bold text-center small px-2">${voluntariado.titulo}</div>
-            <div class="text-center small px-2">${voluntariado.autor}</div>
+            <div class="text-center small px-2">${voluntariado.autor?.nombre || 'Unknown'}</div>
             <div class="text-center small px-2">${voluntariado.fecha}</div>
           </div>
           <button type="button" class="btn-close small" data-id-quitar="${id}" aria-label="Quitar"></button>
@@ -276,30 +292,53 @@ function renderSeleccionados() {
 }
 
 // Init
+
 document.addEventListener("DOMContentLoaded", () => {
   initDashboard();
 });
 
 async function initDashboard() {
-  // Inicializa datos base (usuarios, etc.)
-  await inicializarDatos();
-
-  // Usuario activo → navbar
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
-
-  // Dibuja la estructura del dashboard
   const app = $("#app");
-  renderLayout(app);
+  await renderLayout(app);
 
-  // Carga los voluntariados desde IndexedDB/localStorage (CRUD)
-  STATE.voluntariados = await listarVoluntariados();
 
-  //Carga los voluntariados seleccionados
-  const seleccionadosObjetos = await listarSeleccionados();
-  
-  // MODIFICACIÓN CLAVE: Convertimos los objetos en un array de IDs para el STATE
-  STATE.seleccionados = seleccionadosObjetos.map(v => v.id);
+  // Intenta sincronizar usuario desde la sesión del backend
+  let user = getActiveUser();
+  if (!user) {
+    user = await fetchSessionUser();
+    if (user) setActiveUser(user);
+  }
+  setNavbarUser(user?.nombre || "-no login-");
+
+
+  // Carga los voluntariados desde la API
+  try {
+    STATE.voluntariados = await listarVoluntariados();
+    console.log("voluntariados loaded:", STATE.voluntariados);
+  } catch (error) {
+    console.error("Error loading voluntariados:", error);
+    STATE.voluntariados = [];
+  }
+
+  // Carga los seleccionados desde localStorage
+  // Always store seleccionados as array of numbers
+  STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+
+
+  // WebSocket para actualizaciones en tiempo real
+  const socket = io("http://localhost:4000");
+  socket.on("voluntariadoUpdated", async () => {
+    console.log("Voluntariados actualizados, recargando...");
+    try {
+      STATE.voluntariados = await listarVoluntariados();
+      draw();
+    } catch (error) {
+      console.error("Error reloading voluntariados:", error);
+    }
+  });
+
+  // NOTA: Para evitar problemas de sesión/cookies, abre SIEMPRE el frontend desde http://localhost:5500 o similar, NUNCA como file://
+  // Si puedes, sirve el frontend desde el mismo servidor Express para evitar CORS y problemas de sesión.
 
   // Listeners de búsqueda y pestañas
   $("#q").addEventListener("input", (e) => {
@@ -324,12 +363,11 @@ async function initDashboard() {
     draw();
     renderSeleccionados();
   });
-    // Listeners de Drag & Drop
+
   addDragAndDropListeners();
 
   // Primer pintado
   draw();
-  // Segundo pintado
   renderSeleccionados();
 }
 
@@ -353,22 +391,19 @@ function addDragAndDropListeners() {
     
     // 3. Quitar de la selección (delegación de eventos)
     dropZone.addEventListener("click", async (e) => {
-        const quitartBtn = e.target.closest('[data-id-quitar]');
-        if (!quitartBtn) return;
+    const quitartBtn = e.target.closest('[data-id-quitar]');
+    if (!quitartBtn) return;
 
-        const id = Number(quitartBtn.dataset.idQuitar);
-        
-        try {
-            await borrarSeleccionados(id);
-        } catch (err) {
-            console.error("[dashboard] error eliminando en IndexedDB", err);
-        }
-        
-        STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
-        
-        draw();
-        renderSeleccionados();
-    });
+    const id = Number(quitartBtn.dataset.idQuitar);
+
+    // async: borrar en localStorage o API
+    await borrarSeleccionados(id);
+
+    STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
+
+    draw();
+    renderSeleccionados();
+  });
 }
 
 function handleDragStart(e) {
@@ -436,16 +471,14 @@ function handleDrop(e) {
     
     // Añade el ID al array de seleccionados (si no estaba ya)
     if (!STATE.seleccionados.includes(id)) {
-        STATE.seleccionados.push(id);
-        
-        const voluntariado = STATE.voluntariados.find(v => v.id === id);
+        const voluntariado = STATE.voluntariados.find(v => Number(v.id) === id);
         if(voluntariado){
           guardarSeleccionados({...voluntariado, id: Number(voluntariado.id)});
         }
-
-        // Vuelve a pintar las dos zonas para que se actualicen
-        draw(); // Vuelve a pintar la rejilla (la tarjeta arrastrada desaparecerá)
-        renderSeleccionados(); // Pinta la zona de selección (la tarjeta aparecerá aquí)
+        // Always reload seleccionados from localStorage as numbers
+        STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+        draw();
+        renderSeleccionados();
     }
 }
 
@@ -461,17 +494,14 @@ async function handleDropToGrid(e) {
     
     // Si viene de la zona de selección, hay que quitarlo de seleccionados
     if (STATE.seleccionados.includes(id)) {
-        try {
-            await borrarSeleccionados(id); // Eliminar de IndexedDB
-        } catch (err) {
-            console.error("[dashboard] error eliminando en IndexedDB", err);
-        }
-        
-        // Eliminar del estado local
-        STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
-        
-        // Volver a pintar ambas zonas
-        draw(); // Vuelve a pintar la rejilla (la tarjeta aparecerá aquí)
-        renderSeleccionados(); // Pinta la zona de selección (la tarjeta desaparecerá de aquí)
+      try {
+        await borrarSeleccionados(id); // Eliminar de localStorage
+      } catch (err) {
+        console.error("[dashboard] error eliminando en localStorage", err);
+      }
+      // Always reload seleccionados from localStorage as numbers
+      STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+      draw();
+      renderSeleccionados();
     }
 }

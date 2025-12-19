@@ -1,340 +1,243 @@
+// =========================
+// USUARIOS
+// =========================
+
+// Use GraphQL backend for usuarios
+export async function obtenerUsuarios() {
+  const query = `
+    query {
+      usuarios {
+        id
+        nombre
+        email
+        rol
+      }
+    }
+  `;
+  const data = await graphqlFetch(query);
+  return data.usuarios;
+}
+
+export async function altaUsuario({ nombre, email, password, rol }) {
+  const mutation = `
+    mutation {
+      altaUsuario(nombre: "${nombre}", email: "${email}", password: "${password}", rol: "${rol}") {
+        id
+        nombre
+        email
+        rol
+      }
+    }
+  `;
+  const data = await graphqlFetch(mutation);
+  return data.altaUsuario;
+}
+
+export async function borrarUsuario(id) {
+  const mutation = `
+    mutation {
+      borrarUsuario(id: ${id})
+    }
+  `;
+  const data = await graphqlFetch(mutation);
+  return data.borrarUsuario;
+}
+
+// =========================
+// CATEGORIAS
+// =========================
+
+export async function obtenerCategorias() {
+  // Puedes cambiar esto para que haga una petición a la API si tienes endpoint de categorías
+  return ["Todas", "Idiomas", "Deportes", "Profesiones"];
+}
 // js/almacenaje.js
 
-import { datos } from "./datos.js";
+const GRAPHQL_URL = "http://localhost:4000/graphql";
 
-/**
- * Inicializa los usuarios en localStorage si no existen todavía y en IndexedDB.
- */
-export async function inicializarDatos() {
-  const usuariosExisten = localStorage.getItem("usuarios");
-  if (!usuariosExisten) {
-    localStorage.setItem("usuarios", JSON.stringify(datos.usuarios));
-    console.log("Usuarios iniciales cargados en localStorage");
-  }
-
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readonly");
-    const store = tx.objectStore("voluntariados");
-    const countRequest = store.count();
-    countRequest.onsuccess = async function () {
-      if (countRequest.result === 0) {
-        // Si está vacío, agregamos los de ejemplo
-        const txAdd = db.transaction("voluntariados", "readwrite");
-        const storeAdd = txAdd.objectStore("voluntariados");
-        for (const v of datos.voluntariados) {
-          storeAdd.add({
-          ...v,
-          creadoPor: v.creadoPor || v.autor || "Anónimo" // ← usa autor si creadoPor no existe
-         });
-        }
-        txAdd.oncomplete = () => {
-          console.log("Voluntariados inicales cargados en IndexedDB");
-          resolve(true);
-        };
-        txAdd.onerror = reject;
-      } else {
-        resolve(false); // Ya había datos, no se carga nada
-      }
-    };
-    countRequest.onerror = reject;
-  });
-}
-
-// Categorías disponibles para filtros, tabs, etc.
-export function getCategorias() {
-  return datos.categorias || ["Todas"];
-}
-// Seleccion voluntariados propios
-export function getSeleccion(){
-  return datos.seleccion || ["Todos"];
-}
-
-// === CRUD y autenticación para la app de voluntariado ===
-
-// ------ Usuarios (LocalStorage) ------
-
-/**
- * Añade un nuevo usuario al sistema y lo guarda en localStorage.
- * Si ya existe un usuario con el mismo email, no lo añade y retorna false.
- * @param {Object} usuario - Debe tener { nombre, email, contraseña, rol }
- * @returns {boolean} true si fue añadido, false si ya existía ese email
- */
-export function altaUsuario(usuario) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const existeUsuario = usuarios.some((u) => u.email === usuario.email);
-  if (existeUsuario) {
-    return false;
-  }
-  usuarios.push(usuario);
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
-}
-
-/**
- * Devuelve un array con todos los usuarios regsitrados.
- */
-export function listarUsuarios() {
-  const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  return usuarios;
-}
-
-/**
- * Modifica los datos de un usuario existente en localSotrage.
- * Busca el usuario por su email (clave única).
- * @param {string} emailOriginal - El email del usuario (clave única)
- * @param {Object} usuarioActualizado - Objeto con los nuevos datos {nombre, email, contraseña, rol}
- * @returns {boolean} true si se modificó correctamente, false si no existía el usuario
- */
-export function modificarUsuario(emailOriginal, usuarioActualizado) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const indice = usuarios.findIndex((u) => u.email === emailOriginal);
-  if (indice === -1) {
-    return false; // No se encontró el usuario
-  }
-  if (usuarioActualizado.email !== emailOriginal) {
-    const emailUsuarioExiste = usuarios.some((u) => u.email === usuarioActualizado.email);
-    if (emailUsuarioExiste) {
-      return false; // No permite modificar el email a uno que ya existe en otro usuario
+async function graphqlFetch(query) {
+  console.log('[almacenaje] Sending GraphQL request:', query);
+  try {
+    const res = await fetch(GRAPHQL_URL, {
+      method: "POST",
+      credentials: "include", // 🔴 SESIÓN
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query }),
+    });
+    console.log('[almacenaje] Response status:', res.status);
+    const json = await res.json();
+    console.log('[almacenaje] Response JSON:', json);
+    if (json.errors) {
+      console.error('[almacenaje] GraphQL errors:', json.errors);
+      throw new Error(json.errors[0].message);
     }
+    return json.data;
+  } catch (err) {
+    console.error('[almacenaje] Fetch error:', err);
+    throw err;
   }
-  usuarios[indice] = usuarioActualizado;
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
 }
 
-/**
- * Elimina un usuario del localStorage por su email.
- * @param {string} email - Email del usuario a eliminar
- * @retuns {boolean} true si eliminó el usuario, false si no existía
- */
-export function borrarUsuario(email) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
+// =========================
+// VOLUNTARIADOS
+// =========================
 
-  const indice = usuarios.findIndex((u) => u.email === email);
-  if (indice === -1) {
-    return false; // No existe ese usuario
-  }
-  usuarios.splice(indice, 1);
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
-}
-
-/**
- * Verifica usuario/contraseña y devuelve el usuario si existe.
- * @param {string} email
- * @param {string} password
- * @return {Object|null} El objeto usuario si autenticación OK, null si no concide.
- */
-export function loguearUsuario(email, password) {
-  const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const usuario = usuarios.find((u) => u.email === email && u.password === password);
-  return usuario || null;
-}
-
-/**
- * Guarda el usuario activo en localStorage.
- * @param {string} usuario
- */
-export function guardarUsuarioActivo(email) {
-  localStorage.setItem("usuarioActivo", email);
-}
-
-/**
- * Recupera el email del usario activo o null si no hay sesión.
- * @returns {string|null}
- */
-export function obtenerUsuarioActivo() {
-  return localStorage.getItem("usuarioActivo");
-}
-
-/**
- * Cierra sesión.
- */
-export function logoutUsuario() {
-  localStorage.removeItem("usuarioActivo");
-}
-
-// Devuelve el objeto usuario activo, o null si no hay
-export function getActiveUser() {
-  const email = obtenerUsuarioActivo(); // string o null
-  if (!email) return null;
-
-  const usuarios = listarUsuarios() || []; // del localStorage / datos
-  return usuarios.find((u) => u.email === email) || null;
-}
-
-// (Opcional) helper rápido para comprobar si hay login
-export function isLoggedIn() {
-  return !!getActiveUser();
-}
-
-/**
- * ----- Voluntariados (IndexedDB, funciones asíncronas) -----
- */
-
-// Función que se reutiliza en todas las operaciones de voluntariados
-function abrirDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("VoluntariadoDB", 1);
-
-    request.onupgradeneeded = function (event) {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains("voluntariados")) {
-        db.createObjectStore("voluntariados", { keyPath: "id", autoIncrement: true });
+// Use GraphQL backend for voluntariados
+export async function obtenerVoluntariados() {
+  const query = `
+    query {
+      voluntariados {
+        id
+        titulo
+        resumen
+        modalidad
+        categoria
+        fecha
+        autor {
+          nombre
+        }
+        creadoPor
+        type
       }
+    }
+  `;
+  const data = await graphqlFetch(query);
+  return data.voluntariados;
+}
 
-      //almacenaje de voluntariados seleccionados
-      if(!db.objectStoreNames.contains("seleccionados")) {
-        db.createObjectStore("seleccionados", { keyPath: "id", autoIncrement: true });
+export async function altaVoluntariado(nuevo) {
+  // id_usuario must be provided (logged-in user)
+  if (!nuevo.id_usuario) throw new Error('id_usuario is required');
+  const mutation = `
+    mutation {
+      altaVoluntariado(
+        type: "${nuevo.type || 'oferta'}",
+        titulo: "${nuevo.titulo}",
+        resumen: "${nuevo.resumen}",
+        modalidad: "${nuevo.modalidad}",
+        categoria: "${nuevo.categoria}",
+        fecha: "${nuevo.fecha}",
+        id_usuario: ${nuevo.id_usuario}
+      ) {
+        id
+        titulo
       }
-    };
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(event.target.error);
-    };
-  });
+    }
+  `;
+  const data = await graphqlFetch(mutation);
+  return data.altaVoluntariado;
 }
 
-/**
- * Añade un nuevo voluntariado a la base de datos IndexedDB (async).
- * @param {Object} voluntariado -El objeto con los campos: titulo, email, fecha, descripción, tipo
- * @returns {Promise<number>} - El id generado para el voluntariado
- */
-export async function altaVoluntariado(voluntariado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readwrite");
-    const store = tx.objectStore("voluntariados");
-    const request = store.add(voluntariado);
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(request.result);
-    };
-  });
-}
-
-/**
- * Devuelve un array con todos los voluntariados de la base de datos (async).
- * @returns {Promise<Array>}
- */
-export async function listarVoluntariados() {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("voluntariados", "readonly");
-    const store = transaction.objectStore("voluntariados");
-    const request = store.getAll();
-    request.onsuccess = function (event) {
-      resolve(request.result);
-    };
-    request.onsuccess = function (event) {
-  // Garantiza que todos los registros tengan creadoPor
-  const vols = request.result.map(v => ({ ...v, creadoPor: v.creadoPor || "Anónimo" }));
-  resolve(vols)
-    };
-  });
-}
-
-/**
- * Modificar un voluntariado por ID de la base de datos (async).
- * @param {number} id - ID del voluntariado a modificar.
- * @param {Object} voluntariadoActualizado - Nuevo objeto voluntariado.
- * @returns {Promise<boolean>}
- */
-export async function modificarVoluntariado(id, voluntariadoActualizado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readwrite");
-    const store = tx.objectStore("voluntariados");
-    // Debes asegurarte de que el objeto tiene el id
-    voluntariadoActualizado.id = id;
-    const request = store.put(voluntariadoActualizado);
-    request.onsuccess = function () {
-      resolve(true);
-    };
-    request.onerror = function () {
-      reject(request.error);
-    };
-  });
-}
-
-/**
- * Elimina un voluntariado por ID de la base de datos (async).
- * @param {number} id
- */
 export async function borrarVoluntariado(id) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const trasaction = db.transaction("voluntariados", "readwrite");
-    const store = trasaction.objectStore("voluntariados");
-    const request = store.delete(id);
-    request.onsuccess = function (event) {
-      resolve(true);
-    };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
+  const mutation = `
+    mutation {
+      borrarVoluntariado(id: ${id})
+    }
+  `;
+  const data = await graphqlFetch(mutation);
+  return data.borrarVoluntariado;
+}
+
+// =========================
+// LOGIN / LOGOUT
+// =========================
+
+export async function login(email, password) {
+  const res = await fetch("http://localhost:4000/login", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email, password }),
+  });
+
+  const json = await res.json();
+
+  if (!res.ok || json.error) {
+    throw new Error(json.error || "Login failed");
+  }
+
+  return json.user;
+}
+
+export async function logout() {
+  await fetch("http://localhost:4000/logout", {
+    method: "POST",
+    credentials: "include",
   });
 }
 
-/**
- * Devuelve los voluntariados de un usuario (filtro por email) (async).
- * @param {string} email
- * @returns {Promise<Array>}
- */
-export async function voluntariadosPorUsuario(email) {
-  const todosVoluntarioados = await listarVoluntariados();
-  return todosVoluntarioados.filter((v) => v.email === email);
+// =========================
+// USUARIO ACTIVO
+// =========================
+
+export function getActiveUser() {
+  // Since session is server-side, perhaps fetch from API, but for simplicity, assume not needed, or fetch user info.
+  // But in the app, perhaps store locally after login.
+  // For now, return null or something.
+  return JSON.parse(localStorage.getItem("activeUser") || "null");
 }
 
-//guardar voluntariados seleccionados
-export async function guardarSeleccionados(voluntariado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("seleccionados", "readwrite");
-    const store = tx.objectStore("seleccionados");
-    const request = store.add(voluntariado);
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(request.result);
-    };
-  });
+export function setActiveUser(user) {
+  localStorage.setItem("activeUser", JSON.stringify(user));
 }
 
-//listar voluntariados seleccionados
-export async function listarSeleccionados() {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("seleccionados", "readonly");
-    const store = transaction.objectStore("seleccionados");
-    const request = store.getAll();
-    request.onsuccess = function (event) {
-      resolve(request.result);
-    };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
-  });
+// =========================
+// SELECCIONADOS (LOCAL, SIN API)
+// =========================
+
+export function getSeleccion() {
+  return ["Todos", "Seleccionados"];
 }
 
-//borrar voluntariados seleccionados
-export async function borrarSeleccionados(id) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const trasaction = db.transaction("seleccionados", "readwrite");
-    const store = trasaction.objectStore("seleccionados");
-    const request = store.delete(id);
-    request.onsuccess = function (event) {
-      resolve(true);
-    };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
-  });
+// Patch: store and retrieve seleccionados from localStorage as array of IDs
+export function listarSeleccionados() {
+  let data = localStorage.getItem("seleccionados");
+  try {
+    const parsed = JSON.parse(data);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
+
+export function guardarSeleccionados(voluntariado) {
+  // Store only the ID for demo
+  const seleccionados = JSON.parse(localStorage.getItem("seleccionados") || "[]");
+  if (!seleccionados.includes(voluntariado.id)) {
+    seleccionados.push(voluntariado.id);
+    localStorage.setItem("seleccionados", JSON.stringify(seleccionados));
+  }
+}
+
+export function borrarSeleccionados(id) {
+  const seleccionados = JSON.parse(localStorage.getItem("seleccionados") || "[]");
+  const updated = seleccionados.filter(selId => selId !== id);
+  localStorage.setItem("seleccionados", JSON.stringify(updated));
+}
+
+// =========================
+// ALIASES PARA COMPATIBILIDAD
+// =========================
+
+export async function listarVoluntariados() {
+  return await obtenerVoluntariados();
+}
+
+export async function getCategorias() {
+  // Always return an array, even if obtenerCategorias fails
+  try {
+    const cats = await obtenerCategorias();
+    return Array.isArray(cats) ? cats : ["Todas", "Idiomas", "Deportes", "Profesiones"];
+  } catch {
+    return ["Todas", "Idiomas", "Deportes", "Profesiones"];
+  }
+}
+
+export async function listarUsuarios() {
+  return await obtenerUsuarios();
+}
+

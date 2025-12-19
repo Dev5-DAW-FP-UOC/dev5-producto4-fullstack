@@ -109,6 +109,7 @@ async function handleSubmit(e) {
     resumen: (f.descripcion?.value || "").trim(),
     fecha: f.fecha?.value || todayISO(),
     creadoPor: active?.nombre || "Anónimo", // ← ahora sí existe 'active'
+    id_usuario: active?.id || null
   };
 
   if (!nuevo.titulo || !nuevo.descripcion) {

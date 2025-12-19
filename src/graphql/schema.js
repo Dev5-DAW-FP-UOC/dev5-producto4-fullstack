@@ -1,279 +1,164 @@
-// src/graphql/schema.js
+import { buildSchema } from "graphql";
+import Usuario from "../models/Usuarios.js";
+import Voluntariado from "../models/Voluntariados.js";
+import Categoria from "../models/Categorias.js";
 
-import { GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLList, GraphQLBoolean, GraphQLInt, GraphQLNonNull } from "graphql";
+export const schema = buildSchema(`
+  type Usuario {
+    id: ID!
+    nombre: String
+    email: String
+    rol: String
+  }
 
-import {
-  // Usuarios
-  altaUsuario,
-  listarUsuarios,
-  buscarUsuarioPorEmail,
-  buscarUsuarioPorId,
-  modificarUsuario,
-  borrarUsuario,
-  // Voluntariados
-  altaVoluntariado,
-  listarVoluntariados,
-  modificarVoluntariado,
-  borrarVoluntariado,
-  loginUsuario,
-  voluntariadosPorUsuario,
-  // Categorias
-  getCategorias,
-  // Seleccionados
-  guardarSeleccionado,
-  listarSeleccionados,
-  seleccionadosPorUsuario,
-  borrarSeleccionado,
-} from "../services/almacenajeService.js";
+  type Voluntariado {
+    id: ID!
+    type: String
+    titulo: String
+    resumen: String
+    modalidad: String
+    categoria: String
+    fecha: String
+    autor: Usuario
+    creadoPor: String
+  }
 
-/* =====================================
- *  TYPES
- * ===================================== */
+  type Categoria {
+    id: Int
+    nombre: String
+  }
 
-/**
- * Type GraphQL que representa a un usuario del sistema.
- * Equivale al modelo `Usuario` del backend.
- */
-const UsuarioType = new GraphQLObjectType({
-  name: "Usuario",
-  fields: {
-    id: { type: GraphQLInt },
-    nombre: { type: GraphQLString },
-    email: { type: GraphQLString },
-    password: { type: GraphQLString },
-    rol: { type: GraphQLString },
+  type Query {
+    voluntariados: [Voluntariado]
+    categorias: [Categoria]
+    usuarios: [Usuario]
+  }
+
+  type Mutation {
+    altaUsuario(nombre: String!, email: String!, password: String!, rol: String!): Usuario
+    borrarUsuario(id: ID!): Boolean
+    altaVoluntariado(
+      type: String!
+      titulo: String!
+      resumen: String!
+      modalidad: String!
+      categoria: String!
+      fecha: String!
+      id_usuario: Int!
+    ): Voluntariado
+    borrarVoluntariado(id: ID!): Boolean
+  }
+`);
+
+export const root = {
+  voluntariados: async () => {
+    console.log('Resolver: voluntariados called');
+    try {
+      console.log('Before Voluntariado.find');
+      const docs = await Voluntariado.find().lean();
+      console.log('After Voluntariado.find, docs.length:', docs.length);
+      const userIds = docs.map(v => v.id_usuario).filter(Boolean);
+      console.log('User IDs to fetch:', userIds);
+      const usuarios = await Usuario.find({ id: { $in: userIds } }).lean();
+      console.log('After Usuario.find, usuarios.length:', usuarios.length);
+      const usuarioMap = {};
+      usuarios.forEach(u => { usuarioMap[u.id] = u; });
+      const result = docs.map(v => {
+        const autor = usuarioMap[v.id_usuario] || null;
+        return {
+          id: v.id,
+          type: v.type || "oferta",
+          titulo: v.titulo,
+          resumen: v.resumen,
+          modalidad: v.modalidad,
+          categoria: v.categoria,
+          fecha: v.fecha,
+          autor: autor ? { id: autor.id, nombre: autor.nombre, email: autor.email, rol: autor.rol } : null,
+          creadoPor: autor ? autor.nombre : "Anónimo"
+        };
+      });
+      console.log('Returning voluntariados result, length:', result.length);
+      return result;
+    } catch (err) {
+      console.error('Error in voluntariados resolver:', err);
+      return [];
+    }
   },
-});
-
-/**
- * Type GraphQL que representa un voluntariado.
- * Equivale al modelo `Voluntariado` del backend.
- */
-const VoluntariadoType = new GraphQLObjectType({
-  name: "Voluntariado",
-  fields: {
-    id: { type: GraphQLInt },
-    type: { type: GraphQLString },
-    titulo: { type: GraphQLString },
-    id_usuario: { type: GraphQLInt },
-    modalidad: { type: GraphQLString },
-    categoria: { type: GraphQLString },
-    resumen: { type: GraphQLString },
-    fecha: { type: GraphQLString },
+  categorias: async () => {
+    console.log('Resolver: categorias called');
+    try {
+      const docs = await Categoria.find().lean();
+      return docs.map(c => ({ id: c.id, nombre: c.nombre }));
+    } catch (err) {
+      console.error('Error in categorias resolver:', err);
+      return [];
+    }
   },
-});
-
-/**
- * Type GraphQL que representa la relación de selección
- * entre un usuario y un voluntariado.
- */
-const SeleccionadoType = new GraphQLObjectType({
-  name: "Seleccionado",
-  fields: {
-    id: { type: GraphQLInt }, // id de la selección
-    id_usuario: { type: GraphQLInt }, // id del usuario que selecciona
-    id_voluntariado: { type: GraphQLInt }, // id del voluntariado seleccionado
+  usuarios: async () => {
+    console.log('Resolver: usuarios called');
+    try {
+      const docs = await Usuario.find().lean();
+      return docs;
+    } catch (err) {
+      console.error('Error in usuarios resolver:', err);
+      return [];
+    }
   },
-});
-
-/* =====================================
- *  ROOT QUERY
- * ===================================== */
-
-/**
- * Root Query de la API GraphQL.
- * Define todas las operaciones de lectura.
- */
-const RootQuery = new GraphQLObjectType({
-  name: "Query",
-  fields: {
-    // ----- USUARIOS -----
-    usuarios: {
-      type: new GraphQLList(UsuarioType),
-      resolve: () => listarUsuarios(),
-    },
-
-    usuarioPorEmail: {
-      type: UsuarioType,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email }) => buscarUsuarioPorEmail(email),
-    },
-
-    usuarioPorId: {
-      type: UsuarioType,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id }) => buscarUsuarioPorId(id),
-    },
-
-    // ----- VOLUNTARIADOS -----
-    voluntariados: {
-      type: new GraphQLList(VoluntariadoType),
-      resolve: () => listarVoluntariados(),
-    },
-
-    voluntariadosPorUsuario: {
-      type: new GraphQLList(VoluntariadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id_usuario }) => voluntariadosPorUsuario(id_usuario),
-    },
-
-    // ----- CATEGORÍAS -----
-    categorias: {
-      type: new GraphQLList(GraphQLString),
-      resolve: () => getCategorias(),
-    },
-
-    // ----- SELECIONADOS -----
-    seleccionados: {
-      type: new GraphQLList(SeleccionadoType),
-      resolve: () => listarSeleccionados(),
-    },
-
-    seleccionadosPorUsuario: {
-      type: new GraphQLList(SeleccionadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id_usuario }) => seleccionadosPorUsuario(id_usuario),
-    },
+  altaUsuario: async ({ nombre, email, password, rol }) => {
+    console.log('Resolver: altaUsuario called');
+    try {
+      // Find next id
+      const last = await Usuario.findOne().sort({ id: -1 });
+      const nextId = last ? last.id + 1 : 1;
+      const usuario = new Usuario({ id: nextId, nombre, email, password, rol });
+      await usuario.save();
+      return usuario;
+    } catch (err) {
+      console.error('Error in altaUsuario resolver:', err);
+      return null;
+    }
   },
-});
-
-/* =====================================
- *  ROOT MUTATION
- * ===================================== */
-
-/**
- * Root Mutation de la API GraphQL.
- * Define todas las operaciones de escritura (alta, modificación, borrado).
- */
-const RootMutation = new GraphQLObjectType({
-  name: "Mutation",
-  fields: {
-    // ----- USUARIOS -----
-
-    crearUsuario: {
-      type: UsuarioType,
-      args: {
-        nombre: { type: new GraphQLNonNull(GraphQLString) },
-        email: { type: new GraphQLNonNull(GraphQLString) },
-        password: { type: new GraphQLNonNull(GraphQLString) },
-        rol: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, args) => altaUsuario(args),
-    },
-
-    modificarUsuario: {
-      type: GraphQLBoolean,
-      args: {
-        emailOriginal: { type: new GraphQLNonNull(GraphQLString) },
-        nombre: { type: GraphQLString },
-        email: { type: GraphQLString },
-        password: { type: GraphQLString },
-        rol: { type: GraphQLString },
-      },
-      resolve: (_, { emailOriginal, ...datosActualizados }) => modificarUsuario(emailOriginal, datosActualizados),
-    },
-
-    borrarUsuario: {
-      type: GraphQLBoolean,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email }) => borrarUsuario(email),
-    },
-
-    // ----- LOGIN -----
-
-    login: {
-      type: UsuarioType,
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-        password: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email, password }) => {
-        const usuario = loginUsuario(email, password);
-        if (!usuario) {
-          throw new Error("Email o contraseña incorrectos");
-        }
-        return usuario;
-      },
-    },
-
-    // ----- VOLUNTARIADOS -----
-
-    crearVoluntariado: {
-      type: VoluntariadoType,
-      args: {
-        type: { type: new GraphQLNonNull(GraphQLString) },
-        titulo: { type: new GraphQLNonNull(GraphQLString) },
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-        modalidad: { type: new GraphQLNonNull(GraphQLString) },
-        categoria: { type: new GraphQLNonNull(GraphQLString) },
-        resumen: { type: new GraphQLNonNull(GraphQLString) },
-        fecha: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, args) => altaVoluntariado(args),
-    },
-
-    modificarVoluntariado: {
-      type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
-        type: { type: GraphQLString },
-        titulo: { type: GraphQLString },
-        id_usuario: { type: GraphQLInt },
-        modalidad: { type: GraphQLString },
-        categoria: { type: GraphQLString },
-        resumen: { type: GraphQLString },
-        fecha: { type: GraphQLString },
-      },
-      resolve: (_, { id, ...datosActualizados }) => modificarVoluntariado(id, datosActualizados),
-    },
-
-    borrarVoluntariado: {
-      type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id }) => borrarVoluntariado(id),
-    },
-
-    // ----- SELECCIONADOS -----
-
-    crearSeleccionado: {
-      type: SeleccionadoType,
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-        id_voluntariado: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id_usuario, id_voluntariado }) => guardarSeleccionado(id_usuario, id_voluntariado),
-    },
-
-    borrarSeleccionado: {
-      type: GraphQLBoolean,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id }) => borrarSeleccionado(id),
-    },
+  borrarUsuario: async ({ id }) => {
+    console.log('Resolver: borrarUsuario called');
+    try {
+      const res = await Usuario.deleteOne({ id: Number(id) });
+      return res.deletedCount === 1;
+    } catch (err) {
+      console.error('Error in borrarUsuario resolver:', err);
+      return false;
+    }
   },
-});
-
-/* =====================================
- *  EXPORT SCHEMA
- * ===================================== */
-
-/**
- * Esquema principal de GraphQL que combina Query y Mutation.
- */
-export const schema = new GraphQLSchema({
-  query: RootQuery,
-  mutation: RootMutation,
-});
+  altaVoluntariado: async ({ type, titulo, resumen, modalidad, categoria, fecha, id_usuario }) => {
+    console.log('Resolver: altaVoluntariado called');
+    try {
+      // Find next id
+      const last = await Voluntariado.findOne().sort({ id: -1 });
+      const nextId = last ? last.id + 1 : 1;
+      const voluntariado = new Voluntariado({
+        id: nextId,
+        type,
+        titulo,
+        resumen,
+        modalidad,
+        categoria,
+        fecha,
+        id_usuario
+      });
+      await voluntariado.save();
+      return voluntariado;
+    } catch (err) {
+      console.error('Error in altaVoluntariado resolver:', err);
+      return null;
+    }
+  },
+  borrarVoluntariado: async ({ id }) => {
+    console.log('Resolver: borrarVoluntariado called');
+    try {
+      const res = await Voluntariado.deleteOne({ id: Number(id) });
+      return res.deletedCount === 1;
+    } catch (err) {
+      console.error('Error in borrarVoluntariado resolver:', err);
+      return false;
+    }
+  }
+};
