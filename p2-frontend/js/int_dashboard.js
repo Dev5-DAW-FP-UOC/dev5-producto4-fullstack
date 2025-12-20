@@ -1,6 +1,8 @@
 // js/dashboard.js
 
 import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser, logout } from "./almacenaje.js";
+import { addDragAndDropListeners } from "./dragdrop.js";
+
 // Helper: fetch current user from backend session
 async function fetchSessionUser() {
   try {
@@ -228,15 +230,16 @@ function draw() {
   let listaBase;
 
  if (STATE.filtroSeleccion !== "Todos") {
-      // Si no está seleccionado Todos nos quedamos solo con los voluntariados de seleccionados
-      listaBase = STATE.seleccionados
-      .map(id => STATE.voluntariados.find(v => v.id === id))
-      .filter(v => v); // Filtramos para eliminar nulos o undefined si el ID no se encuentra.
-    
-  } else {
-    // Si es "Todos", la lista base es la de Voluntariados que NO están seleccionados (el comportamiento original).
-    listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
-  }
+  // Si no está seleccionado Todos nos quedamos solo con los voluntariados de seleccionados
+  const selNums = STATE.seleccionados.map(Number);
+  listaBase = selNums
+    .map((id) => STATE.voluntariados.find((v) => Number(v.id) === id))
+    .filter((v) => v);
+} else {
+  // Compare numerically to handle mixed id types
+  const selNums = STATE.seleccionados.map(Number);
+  listaBase = STATE.voluntariados.filter((v) => !selNums.includes(Number(v.id)));
+}
   
   const filtered = applyFilters(listaBase || []);
   const { items, page, pages } = paginate(filtered, STATE.page, STATE.perPage);
@@ -289,7 +292,7 @@ function renderSeleccionados() {
   placeholder.style.display = 'none';
 
   const seleccionadosHTML = STATE.seleccionados.map(id => {
-    const voluntariado = STATE.voluntariados.find(v => v.id === id);
+    const voluntariado = STATE.voluntariados.find((v) => Number(v.id) === Number(id));
     if (!voluntariado) return '';
         const catCls = categoryClass(voluntariado.categoria);
     // Usamos una versión "simplificada" de la tarjeta para la zona de selección
@@ -400,122 +403,28 @@ async function initDashboard() {
     renderSeleccionados();
   });
 
-  addDragAndDropListeners();
+  // initialize drag & drop handlers (extracted to module)
+  addDragAndDropListeners({
+    $, STATE,
+    apiCrearSeleccionado: async (userId, idVol) => {
+      // fallback to local storage helper if server API not wired
+      const voluntariado = STATE.voluntariados.find((v) => Number(v.id) === Number(idVol));
+      if (voluntariado) {
+        guardarSeleccionados({ ...voluntariado, id: Number(voluntariado.id) });
+      }
+      return { id: undefined };
+    },
+    apiBorrarSeleccionado: async (id) => {
+      // fallback to local storage helper
+      borrarSeleccionados(id);
+    },
+    draw,
+    renderSeleccionados,
+  });
 
   // Primer pintado
   draw();
   renderSeleccionados();
-}
-
-function addDragAndDropListeners() {
-    const dropZone = $("#drop-zone");
-    const grid = $("#grid");
-
-    // 1. Dónde se puede soltar
-    dropZone.addEventListener("dragover", handleDragOver);
-    dropZone.addEventListener("dragleave", handleDragLeave);
-    dropZone.addEventListener("drop", handleDrop);
-
-    grid.addEventListener("dragover", handleDragOverToGrid);
-    grid.addEventListener("dragleave", handleDragLeaveToGrid);
-    grid.addEventListener("drop", handleDropToGrid);
-    
-    // 2. Qué se está arrastrando (delegación de eventos)
-    grid.addEventListener("dragstart", handleDragStart);
-
-    dropZone.addEventListener("dragstart", handleDragStartFromDropZone);
-    
-    // 3. Quitar de la selección (delegación de eventos)
-    dropZone.addEventListener("click", async (e) => {
-    const quitartBtn = e.target.closest('[data-id-quitar]');
-    if (!quitartBtn) return;
-
-    const id = Number(quitartBtn.dataset.idQuitar);
-
-    // async: borrar en localStorage o API
-    await borrarSeleccionados(id);
-
-    STATE.seleccionados = STATE.seleccionados.filter(selId => selId !== id);
-
-    draw();
-    renderSeleccionados();
-  });
-}
-
-function handleDragStart(e) {
-    // Guarda el ID de la tarjeta que estás arrastrando
-    const card = e.target.closest('[data-id]');
-    if (card) {
-        e.dataTransfer.setData("text/plain", card.dataset.id);
-        e.dataTransfer.setData("application/source", "grid");
-        e.dataTransfer.effectAllowed = "move";
-    }
-}
-
-function handleDragStartFromDropZone(e) {
-  const card = e.target.closest('[data-id-seleccionado]');
-  if (card) {
-    const id = card.dataset.idSeleccionado;
-    e.dataTransfer.setData("text/plain", id);
-    e.dataTransfer.setData("application/source", "dropzone");
-    e.dataTransfer.effectAllowed = "move";
-  }
-}
-
-function handleDragOver(e) {
-    e.preventDefault(); 
-    const dropZone = $("#drop-zone");
-    if (e.dataTransfer.types.includes("application/source")) {
-        dropZone.classList.add("drag-over");
-        e.dataTransfer.dropEffect = "move";
-    } else {
-        e.dataTransfer.dropEffect = "none";
-    }
-}
-
-function handleDragOverToGrid(e) {
-    e.preventDefault();
-    const grid = $("#grid");
-    if (e.dataTransfer.types.includes("application/source")) {
-        grid.classList.add("drag-over-grid");
-        e.dataTransfer.dropEffect = "move";
-    } else {
-        e.dataTransfer.dropEffect = "none";
-    }
-}
-
-
-function handleDragLeave(e) {
-    const dropZone = $("#drop-zone");
-    dropZone.classList.remove("drag-over"); // Apaga la "bombilla" (el CSS)
-}
-
-function handleDragLeaveToGrid(e) {
-    const grid = $("#grid");
-    grid.classList.remove("drag-over-grid");
-}
-
-function handleDrop(e) {
-    e.preventDefault();
-    const dropZone = $("#drop-zone");
-    dropZone.classList.remove("drag-over"); // Apaga la "bombilla"
-
-    // Obtiene el ID que guardamos en handleDragStart
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    const source = e.dataTransfer.getData("application/source");
-    if (!id || source !== "grid") return;
-    
-    // Añade el ID al array de seleccionados (si no estaba ya)
-    if (!STATE.seleccionados.includes(id)) {
-        const voluntariado = STATE.voluntariados.find(v => Number(v.id) === id);
-        if(voluntariado){
-          guardarSeleccionados({...voluntariado, id: Number(voluntariado.id)});
-        }
-        // Always reload seleccionados from localStorage as numbers
-        STATE.seleccionados = (listarSeleccionados() || []).map(Number);
-        draw();
-        renderSeleccionados();
-    }
 }
 
 async function handleDropToGrid(e) {

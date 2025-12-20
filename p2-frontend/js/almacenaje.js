@@ -224,26 +224,53 @@ export function listarSeleccionados() {
   let data = localStorage.getItem("seleccionados");
   try {
     const parsed = JSON.parse(data);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
   } catch {
     return [];
   }
 }
 
 export function guardarSeleccionados(voluntariado) {
-  // Store only the ID for demo
-  const seleccionados = JSON.parse(localStorage.getItem("seleccionados") || "[]");
-  if (!seleccionados.includes(voluntariado.id)) {
-    seleccionados.push(voluntariado.id);
+  // Robustly read the stored selection list (coerce to array)
+  let seleccionados;
+  try {
+    const raw = localStorage.getItem("seleccionados");
+    const parsed = JSON.parse(raw);
+    seleccionados = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    seleccionados = [];
+  }
+
+  const id = voluntariado && typeof voluntariado === "object" ? voluntariado.id : voluntariado;
+  const idNum = Number(id);
+  if (Number.isNaN(idNum)) return;
+
+  if (!seleccionados.map(Number).includes(idNum)) {
+    seleccionados.push(idNum);
     localStorage.setItem("seleccionados", JSON.stringify(seleccionados));
   }
 }
 
 export function borrarSeleccionados(id) {
-  const seleccionados = JSON.parse(localStorage.getItem("seleccionados") || "[]");
-  const updated = seleccionados.filter(selId => selId !== id);
+  let seleccionados;
+  try {
+    const raw = localStorage.getItem("seleccionados");
+    const parsed = JSON.parse(raw);
+    seleccionados = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    seleccionados = [];
+  }
+  const idNum = Number(id);
+  if (Number.isNaN(idNum)) return;
+  const updated = seleccionados.map(Number).filter((selId) => selId !== idNum);
   localStorage.setItem("seleccionados", JSON.stringify(updated));
-}
+    // inside the existing dropZone click handler, after deleting from server/local map:
+  try { borrarSeleccionados(idVol); } catch {}
+  STATE.seleccionados = STATE.seleccionados.filter((x) => Number(x) !== Number(idVol));
+  draw();
+  renderSeleccionados();
+  }
 
 // =========================
 // ALIASES PARA COMPATIBILIDAD
