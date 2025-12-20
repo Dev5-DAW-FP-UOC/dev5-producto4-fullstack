@@ -11,22 +11,44 @@
   </head>
   <body class="bg-light text-dark" style="font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
     <!-- Navbar clara -->
-    <nav class="navbar navbar-expand-lg bg-white border-bottom">
+      <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-1">
       <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="./dashboard.html">
           <img src="./assets/img/logo_volunet.png" alt="Volunet" class="brand-logo" />
         </a>
+
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
           <span class="navbar-toggler-icon"></span>
         </button>
+
         <div id="nav" class="collapse navbar-collapse">
           <ul class="navbar-nav me-auto">
-            <li class="nav-item"><a class="nav-link" href="./dashboard.html">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link active" href="./dashboard.html">Dashboard</a></li>
             <li class="nav-item"><a class="nav-link" href="./voluntariados.html">Voluntariados</a></li>
             <li class="nav-item"><a class="nav-link" href="./usuarios.html">Usuarios</a></li>
             <li class="nav-item"><a class="nav-link" href="./login.html">Login</a></li>
           </ul>
-          <span class="navbar-text small text-muted" id="userBadge">-no login-</span>
+
+          <!-- ✅ Dropdown usuario (solo Cerrar sesión) -->
+          <div class="dropdown">
+            <button
+              class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2"
+              type="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              id="userMenuBtn"
+            >
+              <span class="user-avatar">👤</span>
+              <span class="small fw-semibold" id="userBadge">-no login-</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+              <li>
+                <button class="dropdown-item text-danger" type="button" id="btnLogout">
+                  Cerrar sesión
+                </button>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </nav>
@@ -63,7 +85,12 @@
       </div>
     </main>
 
-    <footer class="border-top py-3 small text-center text-muted">© 2025 Volunet · Proyecto educativo</footer>
+     <!-- ✅ Footer pegado abajo -->
+    <footer class="border-top py-3 small text-center text-muted mt-auto bg-white">
+      © 2025 Volunet · Proyecto educativo ·
+      <a href="#" class="link-secondary text-decoration-none">Aviso legal</a> ·
+      <a href="#" class="link-secondary text-decoration-none">Contacto</a>
+    </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script type="module" src="./js/int_login.js"></script>

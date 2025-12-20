@@ -8,18 +8,21 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="./css/styles.css?v=7" />
+    <link rel="stylesheet" href="./css/styles.css?v=8" />
   </head>
-  <body class="bg-light text-dark" style="font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+
+  <body class="volunet-body bg-light text-dark" style="font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-1">
       <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="./dashboard.html">
           <img src="./assets/img/logo_volunet.png" alt="Volunet" class="brand-logo" />
         </a>
+
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
           <span class="navbar-toggler-icon"></span>
         </button>
+
         <div id="nav" class="collapse navbar-collapse">
           <ul class="navbar-nav me-auto">
             <li class="nav-item"><a class="nav-link active" href="./dashboard.html">Dashboard</a></li>
@@ -27,14 +30,58 @@
             <li class="nav-item"><a class="nav-link" href="./usuarios.html">Usuarios</a></li>
             <li class="nav-item"><a class="nav-link" href="./login.html">Login</a></li>
           </ul>
-          <span class="navbar-text small text-muted" id="userBadge">-no login-</span>
+
+          <!-- ✅ Dropdown usuario (solo Cerrar sesión) -->
+          <div class="dropdown">
+            <button
+              class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2"
+              type="button"
+              data-bs-toggle="dropdown"
+              aria-expanded="false"
+              id="userMenuBtn"
+            >
+              <span class="user-avatar">👤</span>
+              <span class="small fw-semibold" id="userBadge">-no login-</span>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+              <li>
+                <button class="dropdown-item text-danger" type="button" id="btnLogout">
+                  Cerrar sesión
+                </button>
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     </nav>
 
-    <main class="container my-4" id="app"></main>
+    <!-- ✅ Hero / Banner -->
+    <header class="container mt-4">
+      <section class="hero">
+        <div class="hero-content">
+          <h1 class="hero-title mb-2">
+            Conecta personas.<br />
+            <span class="hero-accent">Crea impacto real</span>
+          </h1>
+          <p class="hero-subtitle mb-4">
+            Volunet te ayuda a ofrecer y solicitar voluntariado de forma sencilla, colaborativa y en tiempo real.
+          </p>
 
-    <footer class="border-top py-3 small text-center text-muted">
+          <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-primary px-4" href="./voluntariados.html">Explorar voluntariados</a>
+            <a class="btn btn-outline-secondary px-4" href="./usuarios.html">Ver usuarios</a>
+          </div>
+        </div>
+
+        <div class="hero-media" aria-hidden="true"></div>
+      </section>
+    </header>
+
+    <!-- Contenido dinámico -->
+    <main class="container my-4 flex-grow-1" id="app"></main>
+
+    <!-- ✅ Footer pegado abajo -->
+    <footer class="border-top py-3 small text-center text-muted mt-auto bg-white">
       © 2025 Volunet · Proyecto educativo ·
       <a href="#" class="link-secondary text-decoration-none">Aviso legal</a> ·
       <a href="#" class="link-secondary text-decoration-none">Contacto</a>
@@ -42,6 +89,26 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script type="module" src="./js/int_dashboard.js?v=20"></script>
+    <script type="module" src="./js/int_dashboard.js?v=21"></script>
+
+    <!-- ✅ logout sin romper nada: si ya tienes logout en tu back, lo conectas aquí -->
+    <script type="module">
+      import { gqlFetch } from "./js/api/graphqlClient.js";
+
+      const btn = document.getElementById("btnLogout");
+      if (btn) {
+        btn.addEventListener("click", async () => {
+          try {
+            // Si tu schema tiene logout:
+            // await gqlFetch(`mutation { logout }`);
+            // Si NO tienes logout, al menos borras la cookie desde servidor cuando lo implementes.
+
+            await gqlFetch(`mutation { logout }`).catch(() => null);
+          } finally {
+            window.location.href = "./login.html";
+          }
+        });
+      }
+    </script>
   </body>
 </html>
