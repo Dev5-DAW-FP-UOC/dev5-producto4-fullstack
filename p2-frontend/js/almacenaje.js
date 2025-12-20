@@ -280,6 +280,51 @@ export async function listarVoluntariados() {
   return await obtenerVoluntariados();
 }
 
+// =========================
+// SELECCIONADOS - Server API
+// =========================
+
+export async function crearSeleccionadoServer(id_voluntariado) {
+  try {
+    const res = await fetch('http://localhost:4000/seleccionados', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_voluntariado }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Error creando seleccionado');
+    return json;
+  } catch (err) {
+    throw err;
+  }
+}
+
+export async function borrarSeleccionadoServerByVol(id_voluntariado) {
+  try {
+    const res = await fetch(`http://localhost:4000/seleccionados/byVol/${id_voluntariado}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Error borrando seleccionado');
+    return json;
+  } catch (err) {
+    throw err;
+  }
+}
+
+export async function listarSeleccionadosServer() {
+  try {
+    const res = await fetch('http://localhost:4000/seleccionados', { credentials: 'include' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Error listando seleccionados');
+    return json;
+  } catch (err) {
+    throw err;
+  }
+}
+
 export async function getCategorias() {
   // Always return an array, even if obtenerCategorias fails
   try {

@@ -34,6 +34,7 @@ function setNavbarUser(name) {
       try { await logout(); } catch (err) { console.error('Logout failed', err); }
       setActiveUser(null);
       setNavbarUser('-no login-');
+      window.location.href = './login.html';
     });
   }
   logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
@@ -54,8 +55,10 @@ function normCat(c) {
 function itemHTML(v) {
   const cat = normCat(v.categoria);
   const typeBadge = String(v.type).toLowerCase().includes("pet") ? '<span class="badge bg-primary me-2">Petición</span>' : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
-
-  const trashBtn = `
+  // Show delete button only to admin users
+  const activeUser = getActiveUser();
+  const showTrash = activeUser && activeUser.rol === 'admin';
+  const trashBtn = showTrash ? `
     <button class="btn-icon" data-action="del" title="Eliminar" aria-label="Eliminar">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M3 6h18" stroke="#666" stroke-width="2" stroke-linecap="round"/>
@@ -64,7 +67,7 @@ function itemHTML(v) {
         <path d="M10 11v6M14 11v6" stroke="#666" stroke-width="2" stroke-linecap="round"/>
       </svg>
     </button>
-  `;
+  ` : '';
 
   return `
     <div class="item p-3 p-md-4 border rounded-3 cat-${cat}" data-id="${v.id}">
@@ -118,6 +121,7 @@ async function handleSubmit(e) {
     // id: (NO poner, lo genera IndexedDB)
     titulo: (f.titulo?.value || "").trim(),
     categoria: normCat(f.categoria?.value),
+    modalidad: f.modalidad?.value || "Online",
     type: (f.tipo?.value || "oferta").toLowerCase(),
     email: (f.email?.value || "").trim(),
     descripcion: (f.descripcion?.value || "").trim(),

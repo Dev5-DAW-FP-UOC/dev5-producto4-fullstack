@@ -32,7 +32,8 @@ const seleccionId = STATE._selMap && (STATE._selMap.get(idVol) ?? STATE._selMap.
 
 if (seleccionId) {
   try {
-    await apiBorrarSeleccionado(seleccionId);
+    // apiBorrarSeleccionado expects a voluntariado id (server route deletes by voluntariado id)
+    await apiBorrarSeleccionado(idVol);
   } catch (err) {
     console.error("[dragdrop] error eliminando seleccionado en servidor", err);
   }
@@ -119,7 +120,12 @@ async function handleDrop(e) {
     STATE.seleccionados.push(idToStore);
 
     // persist locally so page changes keep selection
-    try { guardarSeleccionados(idToStore); } catch {}
+    try {
+      const mod = await import('./almacenaje.js');
+      if (mod && typeof mod.guardarSeleccionados === 'function') {
+        try { mod.guardarSeleccionados(idToStore); } catch (e) {}
+      }
+    } catch (e) {}
 
     try {
       const created = await apiCrearSeleccionado(STATE.me?.id, idToStore);
@@ -154,7 +160,8 @@ async function handleDrop(e) {
     try {
       const seleccionId = STATE._selMap.get(idVolNum) ?? STATE._selMap.get(String(idVolNum));
       if (seleccionId) {
-        await apiBorrarSeleccionado(seleccionId);
+        // ask API to remove selection by voluntariado id
+        await apiBorrarSeleccionado(idVolNum);
         STATE._selMap.delete(idVolNum);
         STATE._selMap.delete(String(idVolNum));
       }

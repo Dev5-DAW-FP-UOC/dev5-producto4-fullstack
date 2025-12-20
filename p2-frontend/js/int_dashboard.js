@@ -1,6 +1,6 @@
 // js/dashboard.js
 
-import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser, logout } from "./almacenaje.js";
+import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser, logout, crearSeleccionadoServer, borrarSeleccionadoServerByVol, listarSeleccionadosServer } from "./almacenaje.js";
 import { addDragAndDropListeners } from "./dragdrop.js";
 
 // Helper: fetch current user from backend session
@@ -60,6 +60,8 @@ function setNavbarUser(name) {
       }
       setActiveUser(null);
       setNavbarUser('-no login-');
+      // Redirect to login screen after logout
+      window.location.href = './login.html';
     });
   }
   logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
@@ -338,6 +340,8 @@ async function initDashboard() {
     user = await fetchSessionUser();
     if (user) setActiveUser(user);
   }
+  // store current user on STATE for drag/drop and other modules
+  STATE.me = user || null;
   setNavbarUser(user?.nombre || "-no login-");
 
 
@@ -352,7 +356,29 @@ async function initDashboard() {
 
   // Carga los seleccionados desde localStorage
   // Always store seleccionados as array of numbers
-  STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+  // Initialize selection map used by dragdrop module
+  STATE._selMap = new Map();
+
+  // If user is logged in, prefer server-side selections; otherwise fallback to localStorage
+  const active = getActiveUser();
+  if (active) {
+    try {
+      const serverList = await listarSeleccionadosServer();
+      // serverList items are expected to have { id, id_usuario, id_voluntariado }
+      STATE.seleccionados = (serverList || []).map((s) => Number(s.id_voluntariado));
+      // populate mapping from voluntariado id -> seleccion id
+      STATE._selMap = new Map();
+      (serverList || []).forEach((s) => {
+        STATE._selMap.set(Number(s.id_voluntariado), s.id);
+        STATE._selMap.set(String(s.id_voluntariado), s.id);
+      });
+    } catch (e) {
+      console.warn('Could not load selections from server, falling back to localStorage', e);
+      STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+    }
+  } else {
+    STATE.seleccionados = (listarSeleccionados() || []).map(Number);
+  }
 
 
   // WebSocket para actualizaciones en tiempo real
@@ -365,6 +391,44 @@ async function initDashboard() {
     } catch (error) {
       console.error("Error reloading voluntariados:", error);
     }
+  });
+  // Listen for single-item create events (emitted by server on new voluntariado)
+  socket.on('voluntariado:created', async (payload) => {
+    try {
+      console.log('Socket event voluntariado:created', payload);
+      // Reload full list to ensure consistency (could fetch single by id)
+      STATE.voluntariados = await listarVoluntariados();
+      draw();
+      renderSeleccionados();
+    } catch (err) {
+      console.error('Error handling voluntariado:created', err);
+    }
+  });
+  // Listen for selection events and reload user's selections
+  socket.on('seleccionado:created', async (payload) => {
+    try {
+      console.log('Socket: seleccionado:created', payload);
+      // Reload current user's seleccionados from server if logged
+      const current = getActiveUser();
+      if (current) {
+        const list = await listarSeleccionadosServer();
+        STATE.seleccionados = (list || []).map(s => Number(s.id_voluntariado));
+        draw();
+        renderSeleccionados();
+      }
+    } catch (e) { console.error(e); }
+  });
+  socket.on('seleccionado:deleted', async (payload) => {
+    try {
+      console.log('Socket: seleccionado:deleted', payload);
+      const current = getActiveUser();
+      if (current) {
+        const list = await listarSeleccionadosServer();
+        STATE.seleccionados = (list || []).map(s => Number(s.id_voluntariado));
+        draw();
+        renderSeleccionados();
+      }
+    } catch (e) { console.error(e); }
   });
 
   // NOTA: Para evitar problemas de sesión/cookies, abre SIEMPRE el frontend desde http://localhost:5500 o similar, NUNCA como file://
@@ -406,17 +470,33 @@ async function initDashboard() {
   // initialize drag & drop handlers (extracted to module)
   addDragAndDropListeners({
     $, STATE,
-    apiCrearSeleccionado: async (userId, idVol) => {
-      // fallback to local storage helper if server API not wired
-      const voluntariado = STATE.voluntariados.find((v) => Number(v.id) === Number(idVol));
-      if (voluntariado) {
-        guardarSeleccionados({ ...voluntariado, id: Number(voluntariado.id) });
+    apiCrearSeleccionado: async (_userId, idVol) => {
+      // Prefer server API; fallback to localStorage
+      try {
+        const created = await crearSeleccionadoServer(Number(idVol));
+        // created: { id, id_usuario, id_voluntariado }
+        if (created && created.id_voluntariado !== undefined) {
+          STATE.seleccionados.push(Number(created.id_voluntariado));
+          draw();
+          renderSeleccionados();
+        }
+        return created;
+      } catch (err) {
+        const voluntariado = STATE.voluntariados.find((v) => Number(v.id) === Number(idVol));
+        if (voluntariado) guardarSeleccionados({ ...voluntariado, id: Number(voluntariado.id) });
+        return { id: undefined };
       }
-      return { id: undefined };
     },
-    apiBorrarSeleccionado: async (id) => {
-      // fallback to local storage helper
-      borrarSeleccionados(id);
+    apiBorrarSeleccionado: async (idVol) => {
+      try {
+        await borrarSeleccionadoServerByVol(Number(idVol));
+        // update local state
+        STATE.seleccionados = STATE.seleccionados.filter((s) => Number(s) !== Number(idVol));
+        draw();
+        renderSeleccionados();
+      } catch (err) {
+        borrarSeleccionados(idVol);
+      }
     },
     draw,
     renderSeleccionados,

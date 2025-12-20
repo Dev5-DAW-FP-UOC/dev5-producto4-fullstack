@@ -6,12 +6,24 @@ import cors from "cors";
 import { Server } from "socket.io";
 import { graphqlHTTP } from "express-graphql";
 import { schema, root } from "./graphql/schema.js"; // <--- traer también root
-import { initMongoData } from "./services/almacenajeService.js";
+import { initMongoData, guardarSeleccionado, borrarSeleccionado, seleccionadosPorUsuario } from "./services/almacenajeService.js";
+import Seleccionado from "./models/Seleccionados.js";
 import Usuario from "./models/Usuarios.js";
 import Voluntariado from "./models/Voluntariados.js";
 import Categoria from "./models/Categorias.js";
 import { getDb } from "./db/mongoClient.js";
 import path from "path";
+
+// Ensure Mongoose connects before other DB code runs
+try {
+  // dynamic import so it works if ./db/mongoose.js is CommonJS
+  const m = await import('./db/mongoose.js');
+  await (m.connect ? m.connect() : (m.default && m.default.connect ? m.default.connect() : Promise.reject(new Error('connect not found'))));
+  console.log('Mongoose initialized via ./db/mongoose.js');
+} catch (err) {
+  console.error('Failed to connect to MongoDB via Mongoose', err);
+  process.exit(1);
+}
 
 /**
  * Puerto en el que escucha la API HTTP.
@@ -22,10 +34,11 @@ import path from "path";
 const app = express();
 
 
-
 // CORS: Permite todos los métodos y headers necesarios para GraphQL y credenciales
 // Allow both localhost and 127.0.0.1 on port 5500 (file server)
 const allowedOrigins = ['http://localhost:5500', 'http://127.0.0.1:5500'];
+// Allow serving frontend from the same origin (avoid cross-site cookie issues)
+allowedOrigins.push('http://localhost:4000');
 
 // Log incoming GraphQL/CORS relevant requests for debugging
 app.use((req, res, next) => {
@@ -59,10 +72,9 @@ app.options('/graphql', cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// SIRVE el frontend desde Express para evitar problemas de CORS y sesión
-// (opcional, pero recomendado)
-// app.use(express.static(path.join(process.cwd(), 'p2-frontend')));
-// Si usas esto, accede a tu app desde http://localhost:4000/index.html
+// Serve the frontend from Express to avoid cross-origin cookie/session issues
+app.use(express.static(path.join(process.cwd(), 'p2-frontend')));
+// Now access the frontend at http://localhost:4000/dashboard.html (or index.html)
 
 /**
  * Instancia principal de la aplicación Express.
@@ -113,28 +125,22 @@ app.get("/test", (req, res) => {
 app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   const usuario = await Usuario.findOne({ email });
-
-  if (!usuario || usuario.password !== password) {
-    return res.status(401).json({ error: "Email o contraseña incorrectos" });
+  if (!usuario) return res.status(401).json({ error: "Email o contraseña incorrectos" });
+  // compare hashed password
+  try {
+    const bcryptMod = await import('bcryptjs');
+    const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
+    const match = await bcrypt.compare(String(password), String(usuario.password));
+    if (!match) return res.status(401).json({ error: "Email o contraseña incorrectos" });
+  } catch (err) {
+    console.error('bcrypt compare failed', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 
   // Guardar datos esenciales en la sesión
   req.session.user = {
     id: usuario.id,
-    rol: usuario.rol,
-    nombre: usuario.nombre,
-  };
-
-  // Guardar datos esenciales en la sesión
-  req.session.user = {
-    id: usuario.id,
-    rol: usuario.rol,
-    nombre: usuario.nombre,
-  };
-
-  // Guardar datos esenciales en la sesión
-  req.session.user = {
-    id: usuario.id,
+    email: usuario.email,
     rol: usuario.rol,
     nombre: usuario.nombre,
   };
@@ -228,14 +234,65 @@ const server = app.listen(PORT, () => {
   console.log(`Endpoint GraphQL en http://localhost:${PORT}/graphql`);
 });
 
-// WebSockets con Socket.io
-const io = new Server(server, { cors: { origin: true, credentials: true } });
+// Socket.io setup for realtime pub/sub
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true,
+  }
+});
+app.locals.io = io;
 io.on('connection', (socket) => {
-  console.log('Usuario conectado via WebSocket');
-  socket.on('disconnect', () => {
-    console.log('Usuario desconectado');
-  });
+  console.log('Socket connected', socket.id);
+  socket.on('disconnect', () => console.log('Socket disconnected', socket.id));
 });
 
 // Emitir actualización cuando se inicializan datos
-io.emit('voluntariadoUpdated', { message: 'Datos inicializados' });
+if (app.locals.io) {
+  app.locals.io.emit('voluntariadoUpdated', { message: 'Datos inicializados' });
+}
+
+// ======================
+// SELECCIONADOS - REST API
+// ======================
+
+// Create a selection for current user
+app.post('/seleccionados', requireAuth, express.json(), async (req, res) => {
+  const userId = req.session.user.id;
+  const { id_voluntariado } = req.body;
+  try {
+    const created = await guardarSeleccionado(userId, Number(id_voluntariado));
+    // Notify other clients
+    if (app.locals.io) app.locals.io.emit('seleccionado:created', { userId, id_voluntariado: Number(id_voluntariado), seleccionId: created.id });
+    res.json(created);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete a selection for current user by voluntariado id
+app.delete('/seleccionados/byVol/:idVol', requireAuth, async (req, res) => {
+  const userId = req.session.user.id;
+  const idVol = Number(req.params.idVol);
+  try {
+    const sel = await Seleccionado.findOne({ id_usuario: userId, id_voluntariado: idVol }).lean();
+    if (!sel) return res.status(404).json({ error: 'Seleccion no encontrada' });
+    const ok = await borrarSeleccionado(sel.id);
+    if (ok && app.locals.io) app.locals.io.emit('seleccionado:deleted', { userId, id_voluntariado: idVol, seleccionId: sel.id });
+    res.json({ deleted: ok });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// List selections for current user
+app.get('/seleccionados', requireAuth, async (req, res) => {
+  const userId = req.session.user.id;
+  try {
+    const list = await seleccionadosPorUsuario(userId);
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});

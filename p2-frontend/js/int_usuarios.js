@@ -34,6 +34,7 @@ function setNavbarUser(name) {
       try { await logout(); } catch (err) { console.error('Logout failed', err); }
       setActiveUser(null);
       setNavbarUser(null);
+      window.location.href = './login.html';
     });
   }
   logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
@@ -43,21 +44,29 @@ async function drawTable() {
   const tbody = $("#tablaUsers tbody");
   if (!tbody) return;
   const arr = await listarUsuarios();
+  const active = getActiveUser();
+  const isAdmin = active && active.rol === 'admin';
+  // Hide acciones header if not admin
+  try {
+    const th = document.querySelector('#tablaUsers thead th.text-end');
+    if (th) th.style.display = isAdmin ? '' : 'none';
+  } catch (e) {}
   if (!arr.length) {
     tbody.innerHTML = `<tr><td colspan="3" class="text-muted">No hay usuarios.</td></tr>`;
     return;
   }
   tbody.innerHTML = arr
-    .map(
-      (u) => `
+    .map((u) => {
+      const deleteBtn = isAdmin
+        ? `<button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${u.email}">Borrar</button>`
+        : "";
+      return `
     <tr>
       <td>${u.nombre || ""}</td>
       <td>${u.email}</td>
-      <td class="text-end">
-        <button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${u.email}">Borrar</button>
-      </td>
-    </tr>`
-    )
+      <td class="text-end">${deleteBtn}</td>
+    </tr>`;
+    })
     .join("");
 }
 

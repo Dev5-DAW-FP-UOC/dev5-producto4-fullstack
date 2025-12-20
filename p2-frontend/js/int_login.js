@@ -36,6 +36,8 @@ document.addEventListener("DOMContentLoaded", () => {
           try { await logout(); } catch (err) { console.error('Logout failed', err); }
           setActiveUser(null);
           badge.textContent = '-no login-';
+          // redirect to login screen
+          window.location.href = './login.html';
         });
       }
       logoutBtn.style.display = active ? 'inline-block' : 'none';
