@@ -62,7 +62,7 @@ export const root = {
   voluntariados: async (_args, context) => {
     console.log('Resolver: voluntariados called');
     try {
-      // Return all voluntariados (show same cards to all users)
+      // Devuelve autor completo
       const user = context?.user || null;
       console.log('Context user:', user ? user.id + '/' + user.rol : 'anonymous');
       const docs = await Voluntariado.find().lean();
@@ -109,7 +109,7 @@ export const root = {
     try {
       const user = context?.user || null;
       if (!user) return [];
-      // Any authenticated user may list users; deletion remains restricted to admin
+      // Cualquier usuario autenticado puede listar usuarios; la eliminación sigue restringida a admin
       const docs = await Usuario.find().lean();
       return docs;
     } catch (err) {
@@ -124,7 +124,7 @@ export const root = {
       if (!user || user.rol !== 'admin') throw new Error('Acceso denegado');
       const last = await Usuario.findOne().sort({ id: -1 });
       const nextId = last ? last.id + 1 : 1;
-      // Ensure password is hashed before saving
+      // Asegura que la contraseña esté hasheada antes de guardar
       const bcryptMod = await import('bcryptjs');
       const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
       const hashed = password ? await bcrypt.hash(String(password), 10) : '';
@@ -176,7 +176,7 @@ export const root = {
     try {
       const user = context?.user || null;
       if (!user) throw new Error('No autenticado');
-      // Only admin users may delete voluntariados
+      // Solo los usuarios admin pueden eliminar voluntariados
       if (user.rol !== 'admin') throw new Error('No autorizado');
       const vol = await Voluntariado.findOne({ id: Number(id) }).lean();
       if (!vol) return false;
@@ -189,7 +189,7 @@ export const root = {
   }
 };
 
-// Add login resolver which receives (args, context)
+// Añade el resolver de login
 root.login = async ({ email, password }, context) => {
   try {
     const req = context?.req;
@@ -200,10 +200,10 @@ root.login = async ({ email, password }, context) => {
     const match = await bcrypt.compare(String(password), String(usuario.password));
     if (!match) throw new Error('Email o contraseña incorrectos');
 
-    // set session if request available (include email)
+    // establece la sesión si la solicitud está disponible (incluye email)
     if (req && req.session) {
       req.session.user = { id: usuario.id, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre };
-      // regenerate session id to prevent fixation
+      // regenera el id de sesión para prevenir fijación
       await new Promise((resolve, reject) => {
         req.session.save((err) => (err ? reject(err) : resolve()));
       });

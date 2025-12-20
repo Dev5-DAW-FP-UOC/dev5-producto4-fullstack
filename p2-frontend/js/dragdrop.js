@@ -1,11 +1,10 @@
-// Minimal, self-contained drag & drop integration for int_dashboard
+// dragdrop.js - Módulo para manejar la funcionalidad de arrastrar y soltar (drag and drop)
 export function addDragAndDropListeners({ $, STATE, apiCrearSeleccionado, apiBorrarSeleccionado, draw, renderSeleccionados }) {
   const dropZone = $("#drop-zone");
   const grid = $("#grid");
 
-  // catch dragstart globally so dynamically-rendered cards are handled
+
 document.addEventListener('dragstart', (e) => {
-  // only if drag originates inside our grid or drop zone
   if (e.target.closest('#grid') || e.target.closest('#drop-zone')) {
     handleDragStart(e);
   }
@@ -27,22 +26,20 @@ document.addEventListener('dragstart', (e) => {
     if (!quitBtn) return;
 
     const idVol = Number(quitBtn.dataset.idQuitar);
-// Try to remove from server if we have a mapping, else just remove locally
 const seleccionId = STATE._selMap && (STATE._selMap.get(idVol) ?? STATE._selMap.get(String(idVol)));
 
 if (seleccionId) {
   try {
-    // apiBorrarSeleccionado expects a voluntariado id (server route deletes by voluntariado id)
+    // apiBorrarSeleccionado espera a voluntariado id, no seleccionado id
     await apiBorrarSeleccionado(idVol);
   } catch (err) {
     console.error("[dragdrop] error eliminando seleccionado en servidor", err);
   }
-  // remove mapping for both numeric and string keys
   STATE._selMap.delete(idVol);
   STATE._selMap.delete(String(idVol));
 }
 
-// Always remove from persisted/local storage if available
+// borra de almacenamiento local
 try {
   const mod = await import('./almacenaje.js');
   if (mod && typeof mod.borrarSeleccionados === 'function') {
@@ -50,7 +47,7 @@ try {
   }
 } catch (e) {}
 
-// Update in-memory selection list and UI
+// Actualiza estado y UI
 STATE.seleccionados = STATE.seleccionados.filter((x) => Number(x) !== idVol);
 draw();
 renderSeleccionados();
@@ -146,8 +143,7 @@ async function handleDrop(e) {
   }
 }
 
-
-  async function handleDropToGrid(e) {
+async function handleDropToGrid(e) {
   e.preventDefault();
   grid?.classList.remove("drag-over-grid");
 

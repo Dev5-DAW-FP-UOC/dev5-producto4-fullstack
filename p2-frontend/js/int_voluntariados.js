@@ -22,7 +22,7 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
-  // Ensure logout button exists and is wired
+  // Logout button
   let logoutBtn = document.getElementById('logoutBtn');
   if (!logoutBtn) {
     logoutBtn = document.createElement('button');
@@ -55,7 +55,7 @@ function normCat(c) {
 function itemHTML(v) {
   const cat = normCat(v.categoria);
   const typeBadge = String(v.type).toLowerCase().includes("pet") ? '<span class="badge bg-primary me-2">Petición</span>' : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
-  // Show delete button only to admin users
+  // EL botón de eliminar solo para admin
   const activeUser = getActiveUser();
   const showTrash = activeUser && activeUser.rol === 'admin';
   const trashBtn = showTrash ? `
@@ -114,7 +114,6 @@ async function handleSubmit(e) {
   e.preventDefault();
   const f = e.currentTarget;
 
-  // 🔧 añade esta línea:
   const active = getActiveUser();
 
   const nuevo = {
@@ -266,13 +265,11 @@ function drawCanvasChart() {
     ctx.fillText(user, x0 + barW, H - padBottom + 12);
   });
 }
-
-
-// ---------- Boot ----------
+// ---------- Inicialización ----------
 document.addEventListener("DOMContentLoaded", async () => {
   // await inicializarDatos();
 
-  // Ensure activeUser exists in localStorage, try server session if necessary
+  // Asegura que el usuario activo esté sincronizado desde la sesión del servidor
   let active = await ensureActiveUserFromSession();
   if (!active) active = getActiveUser();
   setNavbarUser(active?.nombre);
@@ -281,10 +278,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (form) {
     const emailInput = form.querySelector('input[name="email"], #email');
     if (emailInput) {
-      // show the logged user's email but keep the field non-editable
+      // muestra el email del usuario logueado pero mantiene el campo no editable
       const emailToShow = active?.email || '';
       emailInput.value = emailToShow;
-      // also set placeholder in case styles hide the value for disabled inputs
+      // también establece el placeholder en caso de que los estilos oculten el valor para inputs deshabilitados
       emailInput.placeholder = emailToShow;
       emailInput.disabled = true;
     }

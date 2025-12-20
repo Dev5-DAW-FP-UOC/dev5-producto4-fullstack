@@ -22,7 +22,7 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
-  // Ensure logout button exists and is wired
+  // EL logout button
   let logoutBtn = document.getElementById('logoutBtn');
   if (!logoutBtn) {
     logoutBtn = document.createElement('button');
@@ -46,7 +46,7 @@ async function drawTable() {
   const arr = await listarUsuarios();
   const active = getActiveUser();
   const isAdmin = active && active.rol === 'admin';
-  // Hide acciones header if not admin
+  // oculta columna acciones si no es admin
   try {
     const th = document.querySelector('#tablaUsers thead th.text-end');
     if (th) th.style.display = isAdmin ? '' : 'none';
@@ -95,7 +95,7 @@ function wireTableActions() {
   });
 }
 
-// Patch: wireTableActions and altaUsuario are not implemented, so just remove user from table for demo
+// Para borrar usuario por email
 async function borrarUsuario(email) {
   const users = await listarUsuarios();
   const user = users.find(u => u.email === email);
@@ -105,7 +105,7 @@ async function borrarUsuario(email) {
 
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Ensure active user synced from server session
+  // Asegura que el usuario activo esté sincronizado desde la sesión del servidor
   try {
     const m = await import('./almacenaje.js');
     await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const active = getActiveUser();
   setNavbarUser(active?.nombre);
 
-  // Set email placeholder to logged user
+  // placeholder email en el formulario
   const form = $("#formUser");
   if (form && active?.email) {
     const emailInput = form.querySelector('input[name="email"], #email');
@@ -153,7 +153,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-// Re-sync on focus (in case login happened in another tab)
+// Re-sincroniza al enfocar (en caso de que el login haya ocurrido en otra pestaña)
 window.addEventListener('focus', async () => {
   try {
     const m = await import('./almacenaje.js');

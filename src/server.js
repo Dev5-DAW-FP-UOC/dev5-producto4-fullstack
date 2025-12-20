@@ -14,9 +14,9 @@ import Categoria from "./models/Categorias.js";
 import { getDb } from "./db/mongoClient.js";
 import path from "path";
 
-// Ensure Mongoose connects before other DB code runs
+// Mongoose connection
 try {
-  // dynamic import so it works if ./db/mongoose.js is CommonJS
+  // puerto dinamico import para compatibilidad CJS/ESM
   const m = await import('./db/mongoose.js');
   await (m.connect ? m.connect() : (m.default && m.default.connect ? m.default.connect() : Promise.reject(new Error('connect not found'))));
   console.log('Mongoose initialized via ./db/mongoose.js');
@@ -35,12 +35,12 @@ const app = express();
 
 
 // CORS: Permite todos los métodos y headers necesarios para GraphQL y credenciales
-// Allow both localhost and 127.0.0.1 on port 5500 (file server)
+// Permite solicitudes desde el frontend en localhost:5500
 const allowedOrigins = ['http://localhost:5500', 'http://127.0.0.1:5500'];
-// Allow serving frontend from the same origin (avoid cross-site cookie issues)
+// Permite solicitudes desde el servidor GraphQL en localhost:4000
 allowedOrigins.push('http://localhost:4000');
 
-// Log incoming GraphQL/CORS relevant requests for debugging
+// Logs de cada petición HTTP
 app.use((req, res, next) => {
   if (req.path.startsWith('/graphql') || req.headers.origin) {
     console.log(`[HTTP] ${req.method} ${req.path} Origin:${req.headers.origin || 'none'} Content-Type:${req.headers['content-type'] || 'none'}`);
@@ -50,7 +50,7 @@ app.use((req, res, next) => {
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow tools / server-side requests when origin is undefined
+    // Permite herramientas / solicitudes del lado del servidor cuando el origen es indefinido
     if (!origin) return callback(null, true);
     const allowed = allowedOrigins.includes(origin);
     return callback(null, allowed);
@@ -60,7 +60,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Preflight OPTIONS handler for /graphql
+// OPTIONS handler for /graphql
 app.options('/graphql', cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
@@ -72,9 +72,9 @@ app.options('/graphql', cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Serve the frontend from Express to avoid cross-origin cookie/session issues
+// Express sirve archivos estáticos desde p2-frontend
 app.use(express.static(path.join(process.cwd(), 'p2-frontend')));
-// Now access the frontend at http://localhost:4000/dashboard.html (or index.html)
+// Frontend en http://localhost:4000/dashboard.html (or index.html)
 
 /**
  * Instancia principal de la aplicación Express.
@@ -86,7 +86,7 @@ const PORT = process.env.PORT || 4000;
 app.use(express.json());
 
 // Configuración de sesiones
-// Ensure we have a session secret (fallback for local development)
+// Asegrura SameSite=Lax y cookies HTTPOnly para mayor seguridad
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_local_secret_9f3c1b2a5d7e4c1f';
 if (!process.env.SESSION_SECRET) console.warn('WARNING: using default SESSION_SECRET; set SESSION_SECRET in .env for production');
 
@@ -95,11 +95,11 @@ app.use(
     name: "connect.sid",
     secret: SESSION_SECRET,
     resave: false,
-    saveUninitialized: false, // 🔴 CLAVE
+    saveUninitialized: false, 
     cookie: {
       secure: false,          // localhost
       httpOnly: true,         // correcto
-      sameSite: "lax",        // 🔴 CLAVE
+      sameSite: "lax",        
       maxAge: 1000 * 60 * 60 * 24, // 1 día
     },
   })
@@ -126,7 +126,7 @@ app.post("/login", async (req, res) => {
   const { email, password } = req.body;
   const usuario = await Usuario.findOne({ email });
   if (!usuario) return res.status(401).json({ error: "Email o contraseña incorrectos" });
-  // compare hashed password
+  // comparar contraseña hasheada
   try {
     const bcryptMod = await import('bcryptjs');
     const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
@@ -212,11 +212,11 @@ app.use(
   }))
 );
 
-// JSON error handler for GraphQL route to avoid HTML responses
+// JSON errores handling for /graphql
 app.use((err, req, res, next) => {
   if (req.path && req.path.startsWith('/graphql')) {
     console.error('GraphQL route error:', err && err.message);
-    // Return JSON error so clients attempting to parse JSON won't get HTML
+    // Devuleve error JSON
     return res.status(500).json({ message: err?.message || 'Internal Server Error' });
   }
   next(err);
@@ -234,7 +234,7 @@ const server = app.listen(PORT, () => {
   console.log(`Endpoint GraphQL en http://localhost:${PORT}/graphql`);
 });
 
-// Socket.io setup for realtime pub/sub
+// Socket.io
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins,
@@ -271,7 +271,7 @@ app.post('/seleccionados', requireAuth, express.json(), async (req, res) => {
   }
 });
 
-// Delete a selection for current user by voluntariado id
+// Borrar selección por id_voluntariado para el usuario actual
 app.delete('/seleccionados/byVol/:idVol', requireAuth, async (req, res) => {
   const userId = req.session.user.id;
   const idVol = Number(req.params.idVol);
@@ -286,7 +286,7 @@ app.delete('/seleccionados/byVol/:idVol', requireAuth, async (req, res) => {
   }
 });
 
-// List selections for current user
+// Listar seleccionados del usuario actual
 app.get('/seleccionados', requireAuth, async (req, res) => {
   const userId = req.session.user.id;
   try {

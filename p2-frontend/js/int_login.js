@@ -20,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const m = await import('./almacenaje.js');
       await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
     } catch (e) {}
-    // Ensure navbar reflects current session and renders logout button
+    // Actualiza la UI del navbar
     const active = getActiveUser();
     const badge = document.getElementById('userBadge') || document.querySelector('.navbar-text');
     if (badge) {
@@ -36,7 +36,7 @@ document.addEventListener("DOMContentLoaded", () => {
           try { await logout(); } catch (err) { console.error('Logout failed', err); }
           setActiveUser(null);
           badge.textContent = '-no login-';
-          // redirect to login screen
+          // redirige al login
           window.location.href = './login.html';
         });
       }
@@ -60,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const response = await fetch("http://localhost:4000/login", {
         method: "POST",
-        credentials: "include", // 🔴 CLAVE
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -72,7 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // ✅ sesión creada en servidor
+      // sesión creada en servidor
       const json = await response.json();
       console.log('login response json:', json);
       setActiveUser(json.user);

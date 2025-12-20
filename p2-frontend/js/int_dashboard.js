@@ -44,7 +44,7 @@ function setNavbarUser(name) {
   }
   badge.textContent = name || "-no login-";
   console.log('badge textContent set to:', badge.textContent);
-  // Ensure logout button exists and is wired
+  // Botón de logout
   let logoutBtn = document.getElementById('logoutBtn');
   if (!logoutBtn) {
     logoutBtn = document.createElement('button');
@@ -60,7 +60,7 @@ function setNavbarUser(name) {
       }
       setActiveUser(null);
       setNavbarUser('-no login-');
-      // Redirect to login screen after logout
+      // Redirige a la pantalla de login después del logout
       window.location.href = './login.html';
     });
   }
@@ -268,7 +268,6 @@ function draw() {
   paintActiveTab();
 }
 
-
 // Función para pintar las tarjetas en la zona de soltar
 function renderSeleccionados() {
   const dropZoneSection = $("#drop-zone-section");
@@ -319,7 +318,7 @@ function renderSeleccionados() {
 
 document.addEventListener("DOMContentLoaded", () => {
   (async () => {
-    // ensure frontend knows about server session on load
+    // asegura que el frontend conozca la sesión del servidor al cargar
     try {
       await import('./almacenaje.js').then(m => m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
     } catch (e) {
@@ -340,10 +339,9 @@ async function initDashboard() {
     user = await fetchSessionUser();
     if (user) setActiveUser(user);
   }
-  // store current user on STATE for drag/drop and other modules
+  // almacena el usuario actual en STATE para drag/drop y otros módulos
   STATE.me = user || null;
   setNavbarUser(user?.nombre || "-no login-");
-
 
   // Carga los voluntariados desde la API
   try {
@@ -354,12 +352,10 @@ async function initDashboard() {
     STATE.voluntariados = [];
   }
 
-  // Carga los seleccionados desde localStorage
-  // Always store seleccionados as array of numbers
-  // Initialize selection map used by dragdrop module
+  // Carga los seleccionados desde localStorage o servidor
   STATE._selMap = new Map();
 
-  // If user is logged in, prefer server-side selections; otherwise fallback to localStorage
+  // Si hay usuario activo, carga desde servidor
   const active = getActiveUser();
   if (active) {
     try {
@@ -380,7 +376,6 @@ async function initDashboard() {
     STATE.seleccionados = (listarSeleccionados() || []).map(Number);
   }
 
-
   // WebSocket para actualizaciones en tiempo real
   const socket = io("http://localhost:4000");
   socket.on("voluntariadoUpdated", async () => {
@@ -392,11 +387,11 @@ async function initDashboard() {
       console.error("Error reloading voluntariados:", error);
     }
   });
-  // Listen for single-item create events (emitted by server on new voluntariado)
+  // Escucha eventos de creación de un solo ítem (emitidos por el servidor al crear un nuevo voluntariado)
   socket.on('voluntariado:created', async (payload) => {
     try {
       console.log('Socket event voluntariado:created', payload);
-      // Reload full list to ensure consistency (could fetch single by id)
+      // Recarga la lista completa para asegurar consistencia (podría obtener solo uno por id)
       STATE.voluntariados = await listarVoluntariados();
       draw();
       renderSeleccionados();
@@ -404,11 +399,11 @@ async function initDashboard() {
       console.error('Error handling voluntariado:created', err);
     }
   });
-  // Listen for selection events and reload user's selections
+  // Escucha eventos de selección y recarga las selecciones del usuario
   socket.on('seleccionado:created', async (payload) => {
     try {
       console.log('Socket: seleccionado:created', payload);
-      // Reload current user's seleccionados from server if logged
+      // Recarga las selecciones actuales del usuario desde el servidor si está logueado
       const current = getActiveUser();
       if (current) {
         const list = await listarSeleccionadosServer();
@@ -432,7 +427,7 @@ async function initDashboard() {
   });
 
   // NOTA: Para evitar problemas de sesión/cookies, abre SIEMPRE el frontend desde http://localhost:5500 o similar, NUNCA como file://
-  // Also re-sync active user when window gains focus (user may have logged in in other tab)
+  // También vuelve a sincronizar el usuario activo cuando la ventana gana foco (el usuario puede haberse logueado en otra pestaña)
   window.addEventListener('focus', async () => {
     try {
       const m = await import('./almacenaje.js');
@@ -467,7 +462,7 @@ async function initDashboard() {
     renderSeleccionados();
   });
 
-  // initialize drag & drop handlers (extracted to module)
+  // inicializa manejadores de arrastrar y soltar
   addDragAndDropListeners({
     $, STATE,
     apiCrearSeleccionado: async (_userId, idVol) => {
@@ -524,7 +519,7 @@ async function handleDropToGrid(e) {
       } catch (err) {
         console.error("[dashboard] error eliminando en localStorage", err);
       }
-      // Always reload seleccionados from localStorage as numbers
+      // Eliminar de servidor si hay usuario activo
       STATE.seleccionados = (listarSeleccionados() || []).map(Number);
       draw();
       renderSeleccionados();
