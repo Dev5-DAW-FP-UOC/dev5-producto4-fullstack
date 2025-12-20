@@ -8,6 +8,11 @@ import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
 import { connectMongoose } from "./db/mongoose.js";
 import { initMongoData } from "./services/almacenajeService.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 /**
  * Puerto en el que escucha la API HTTP.
@@ -59,11 +64,13 @@ app.get("/debug-session", (req, res) => {
 // Middleware para parsear JSON en peticiones HTTP.
 app.use(express.json());
 
+app.use(express.static(path.join(__dirname, "..", "public")));
+
 /**
  * Ruta raíz de la API. Sirve como comprobación rápida
  * de que el servidor Express está levantado.
  */
-app.get("/", (_req, res) => {
+app.get("/health", (_req, res) => {
   res.send("API Volunet GraphQL funcionando");
 });
 

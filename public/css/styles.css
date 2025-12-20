@@ -1,0 +1,253 @@
+/* ===========================
+   Volunet · styles.css (clean)
+   =========================== */
+
+/* ---------- Variables ---------- */
+:root{
+  --cat-idiomas:  #3b82f6;   /* azul */
+  --cat-deportes: #f88c3f;   /* naranja */
+  --cat-prof:     #47bc72;   /* verde */
+
+  --ink-strong:   #334155;   /* texto oscuro */
+  --ink-muted:    #6b7280;
+  --card-shadow:  rgba(0,0,0,.08);
+
+  /* Fallbacks de fondos suaves por categoría (por si no hay color-mix) */
+  --tint-idiomas-bg:  #eaf2ff;  /* azul muy claro */
+  --tint-idiomas-bd:  #cfe2ff;  /* borde azulado */
+  --tint-deportes-bg: #fff1e6;  /* naranja muy claro */
+  --tint-deportes-bd: #ffd8b5;  /* borde naranja claro */
+  --tint-prof-bg:     #e9fbf0;  /* verde muy claro */
+  --tint-prof-bd:     #c9f2d9;  /* borde verde claro */
+}
+
+/* ---------- Base ---------- */
+body { background:#f8fafc; color:#111827; font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+#app { min-height: 65vh; }
+
+/* ---------- Navbar ---------- */
+.navbar .navbar-brand img.brand-logo{
+  height: 60px !important;
+  width: auto !important;
+  display: inline-block;
+  vertical-align: middle;
+  object-fit: contain;
+}
+@media (min-width: 992px){
+  .navbar .navbar-brand img.brand-logo{ height: 96px !important; }
+}
+.navbar { min-height: 96px; }
+.navbar-brand { padding-block: .2rem; }
+.logo { height: auto !important; width: auto !important; }
+
+/* ---------- Login ---------- */
+.auth-logo{
+  height: 200px;
+  width: auto;
+  display:block;
+  margin-inline:auto;
+  max-width:100%;
+}
+.login-btn{
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border: 0;
+  box-shadow: 0 6px 16px rgba(37,99,235,.25);
+}
+.login-btn:hover{
+  filter: brightness(0.98);
+  box-shadow: 0 8px 20px rgba(37,99,235,.35);
+}
+
+/* ---------- Dashboard ---------- */
+#q { background:#fff; }
+
+/* Tabs / filtros */
+.tab-pill{
+  border:1px solid #e5e7eb;
+  background:#fff;
+  color: var(--ink-strong);
+  padding:.55rem 1rem;
+  border-radius:10px;
+  font-weight:600;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.tab-pill:hover{ background:#f1f5f9; }
+.tab-pill.active{
+  color:#fff;
+  background: var(--cat-idiomas); /* valor por defecto */
+  border-color: transparent;
+}
+
+/* Cards */
+.card-ld{
+  background:#fff;
+  color:#111827;
+  border:2px solid #e5e7eb;
+  border-radius:14px;
+  box-shadow: 0 4px 14px var(--card-shadow);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.card-ld:hover{ transform: translateY(-2px); box-shadow: 0 12px 28px var(--card-shadow); }
+.small-muted{ color: var(--ink-muted); }
+
+.card-selected-item {
+    min-width: 400px; 
+    flex-basis: auto; 
+    flex-grow: 0;
+}
+
+/* --- Colores por categoría (fallback + color-mix si está disponible) --- */
+/* Fallbacks (si el navegador NO soporta color-mix) */
+.cat-Idiomas{    border-color: var(--tint-idiomas-bd);  background: var(--tint-idiomas-bg); }
+.cat-Deportes{   border-color: var(--tint-deportes-bd); background: var(--tint-deportes-bg); }
+.cat-Profesiones{border-color: var(--tint-prof-bd);     background: var(--tint-prof-bg); }
+
+/* Si el navegador soporta color-mix, usamos un tinte más “inteligente” */
+@supports (color: color-mix(in srgb, #000 10%, #fff)) {
+  .cat-Idiomas{
+    border-color: color-mix(in srgb, var(--cat-idiomas) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-idiomas) 10%, #ffffff);
+  }
+  .cat-Deportes{
+    border-color: color-mix(in srgb, var(--cat-deportes) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-deportes) 10%, #ffffff);
+  }
+  .cat-Profesiones{
+    border-color: color-mix(in srgb, var(--cat-prof) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-prof) 10%, #ffffff);
+  }
+}
+
+/* Badges Oferta/Petición */
+.badge-oferta   { background:#f2c744; color:#111; }
+.badge-peticion { background:#3d7bfd; }
+
+/* Paginación */
+.pagination .page-link{
+  color: var(--ink-strong);
+  background:#fff;
+  border:1px solid #cbd5e1;
+  padding:.55rem .9rem;
+}
+.pagination .page-link:hover{ background:#f1f5f9; }
+.pagination .page-item.active .page-link{
+  color:#fff;
+  background: var(--cat-idiomas);
+  border-color: var(--cat-idiomas);
+}
+.pagination .page-item.disabled .page-link{
+  color:#94a3b8;
+  background:#fff;
+}
+
+#drop-zone {
+    padding: 1.5rem;
+    transition: background-color 0.2s, border-color 0.2s;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+#drop-zone.drag-over {
+    background-color: var(--tint-idiomas-bg); 
+    border-color: var(--cat-idiomas); 
+}
+
+#drop-zone-placeholder {
+    color: var(--ink-muted); 
+    margin-bottom: 0;
+}
+
+/* ---------- Accesibilidad ---------- */
+:focus-visible{
+  outline: 3px solid color-mix(in srgb, var(--cat-idiomas) 60%, #ffffff);
+  outline-offset: 2px;
+}
+
+/* ---------- Utilidades ---------- */
+.rounded-4 { border-radius: 1rem !important; }
+
+/* Pestaña ACTIVA por categoría */
+.tab-pill.active.tab-Idiomas{     background: var(--cat-idiomas);  color:#fff; border-color:transparent; }
+.tab-pill.active.tab-Deportes{    background: var(--cat-deportes); color:#fff; border-color:transparent; }
+.tab-pill.active.tab-Profesiones{ background: var(--cat-prof);     color:#fff; border-color:transparent; }
+/* .tab-pill.active.tab-Todas{ background:#0d6efd; }  // si quieres un color propio para “Todas” */
+
+/* ============ Voluntarios (panel + compactación) ============ */
+body.volunteers-bg,
+body.volunteers-bg .panel { background: #eef3ff; }
+
+.panel {
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.06);
+}
+
+.section-title { font-weight: 800; letter-spacing: .2px; }
+
+/* Pills por categoría (si las usas en esta vista) */
+.pill { border-radius: 999px; padding: .25rem .75rem; font-weight: 600; font-size: .9rem; }
+.pill-Idiomas { background: color-mix(in srgb, var(--cat-idiomas) 18%, #fff); color:#0b3b8f; }
+.pill-Deportes { background: color-mix(in srgb, var(--cat-deportes) 18%, #fff); color:#7a3b09; }
+.pill-Profesiones { background: color-mix(in srgb, var(--cat-prof) 18%, #fff); color:#0b5b2b; }
+
+/* Items del listado (Voluntarios) */
+.item { border-radius: 14px; border: 1px solid #eee; }
+.item:hover { border-color: #e1e7f6; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+
+/* Tinte por categoría para items de voluntarios (igual que cards) */
+.item.cat-Idiomas{    border-color: var(--tint-idiomas-bd);  background: var(--tint-idiomas-bg); }
+.item.cat-Deportes{   border-color: var(--tint-deportes-bd); background: var(--tint-deportes-bg); }
+.item.cat-Profesiones{border-color: var(--tint-prof-bd);     background: var(--tint-prof-bg); }
+
+@supports (color: color-mix(in srgb, #000 10%, #fff)) {
+  .item.cat-Idiomas{
+    border-color: color-mix(in srgb, var(--cat-idiomas) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-idiomas) 10%, #ffffff);
+  }
+  .item.cat-Deportes{
+    border-color: color-mix(in srgb, var(--cat-deportes) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-deportes) 10%, #ffffff);
+  }
+  .item.cat-Profesiones{
+    border-color: color-mix(in srgb, var(--cat-prof) 35%, #ffffff);
+    background:   color-mix(in srgb, var(--cat-prof) 10%, #ffffff);
+  }
+}
+
+/* Botón icono reutilizable (si lo usas) */
+.btn-icon {
+  width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #e5e7eb; border-radius: 10px; background: #fff;
+}
+.btn-icon:hover { background:#f8fafc; }
+
+/* Compactación del formulario en esta vista */
+.form-label { margin-bottom: .25rem !important; font-weight: 600; }
+.form-control-sm, .form-select-sm { padding-top: .3rem; padding-bottom: .3rem; }
+#formVol .row { margin-bottom: .25rem; }
+.panel.p-compact { padding: 1.25rem !important; }
+@media (min-width: 768px){ .panel.p-compact { padding: 1.5rem 1.75rem !important; } }
+
+/* panel visual suave */
+.panel {
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.04);
+  padding: 16px;
+}
+
+/* altura y scroll del listado (desktop) */
+.scroll-panel {
+  max-height: 520px;   /* ajusta a tu gusto (480-600px) */
+  overflow: auto;
+  padding-right: 4px;
+}
+
+/* canvas compacto como la demo */
+.chart-sm { max-width: 420px; }
+@media (max-width: 991.98px) {
+  .scroll-panel { max-height: none; }   /* en móvil se expande */
+  .chart-sm { max-width: 100%; }
+}

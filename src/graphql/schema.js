@@ -1,6 +1,7 @@
 // src/graphql/schema.js
 
 import { GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLList, GraphQLBoolean, GraphQLInt, GraphQLNonNull } from "graphql";
+import { Usuario } from "../models/Usuario.js";
 
 import {
   // Usuarios
@@ -48,6 +49,20 @@ function requireAdmin(ctx) {
   return user;
 }
 
+async function withCreadorNombre(vols) {
+  const ids = [...new Set((vols || []).map((v) => v.id_usuario).filter((v) => v != null))];
+
+  if (ids.length === 0) return (vols || []).map((v) => ({ ...v, creadorNombre: "Anónimo" }));
+
+  const users = await Usuario.find({ id: { $in: ids } }, { id: 1, nombre: 1 }).lean();
+  const map = new Map(users.map((u) => [u.id, u.nombre]));
+
+  return (vols || []).map((v) => ({
+    ...v,
+    creadorNombre: map.get(v.id_usuario) || "Anónimo",
+  }));
+}
+
 /* =====================================
  *  TYPES
  * ===================================== */
@@ -81,6 +96,7 @@ const VoluntariadoType = new GraphQLObjectType({
     categoria: { type: GraphQLString },
     resumen: { type: GraphQLString },
     fecha: { type: GraphQLString },
+    creadorNombre: { type: GraphQLString },
   },
 });
 
@@ -153,6 +169,15 @@ const RootQuery = new GraphQLObjectType({
           return await listarVoluntariados();
         }
         return await voluntariadosPorUsuario(u.id);
+      },
+    },
+
+    voluntariadosFeed: {
+      type: new GraphQLList(VoluntariadoType),
+      resolve: async (_parent, _args, ctx) => {
+        requireAuth(ctx); // si quieres permitir sin login, quita esto
+        const vols = await listarVoluntariados(); // TODOS
+        return await withCreadorNombre(vols);
       },
     },
 
