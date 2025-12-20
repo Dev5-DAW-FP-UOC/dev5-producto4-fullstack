@@ -197,7 +197,7 @@ async function handleSubmit(e) {
     type: (f.tipo?.value || "oferta").toLowerCase(),
     titulo,
     id_usuario: Number(state.me.id), // obligatorio por schema, aunque backend lo sobrescribe
-    modalidad: "presencial", // tu schema lo exige. Si tienes selector, lo conectamos.
+    modalidad: f.modalidad?.value || "Presencial",
     categoria: normCat(f.categoria?.value),
     resumen,
     fecha: f.fecha?.value || todayISO(),
@@ -311,11 +311,11 @@ function drawCanvasChart() {
     const x0 = padX + i * (2 * barW + gap);
 
     const h1 = oferta * scale;
-    ctx.fillStyle = "#0d6efd";
+    ctx.fillStyle = "#ffc107";
     ctx.fillRect(x0, cssH - padBottom - h1, barW, h1);
 
     const h2 = peticion * scale;
-    ctx.fillStyle = "#ffc107";
+    ctx.fillStyle = "#0d6efd";
     ctx.fillRect(x0 + barW, cssH - padBottom - h2, barW, h2);
 
     ctx.fillStyle = "#111";

@@ -6,12 +6,38 @@ import { initMongoData } from "./services/almacenajeService.js";
 import { sessionMiddleware } from "./auth/session.js";
 import { connectMongoose } from "./db/mongoose.js";
 import cors from "cors";
+import http from "http";
+import { Server as SocketIOServer } from "socket.io";
 
 
 console.log("SERVER.JS CARGADO ✅");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const server = http.createServer(app);
+
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: ["http://localhost:5500", "http://127.0.0.1:5500"],
+    credentials: true,
+  },
+});
+
+io.on("connection", (socket) => {
+  console.log("[socket] cliente conectado:", socket.id);
+
+  // AQUÍ va el join (cuando el cliente avisa quién es)
+  socket.on("join", ({ userId, rol }) => {
+    if (rol === "admin") socket.join("admins");
+    if (userId) socket.join(`user:${userId}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("[socket] cliente desconectado:", socket.id);
+  });
+});
+
+
 
 app.use(express.json());
 
@@ -46,12 +72,14 @@ app.all(
   "/graphql",
   createHandler({
     schema,
-    context: (req, res) => ({ 
+    context: (req, res) => ({
       req: req.raw,
-      res: res.raw ?? res, 
+      res: res.raw ?? res,
+      io, // ahora GraphQL puede emitir eventos
     }),
   })
 );
+
 
 // ✅ 1) conectar primero
 await connectMongoose();

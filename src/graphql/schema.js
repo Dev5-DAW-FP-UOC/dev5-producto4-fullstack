@@ -288,14 +288,26 @@ const RootMutation = new GraphQLObjectType({
         type: { type: new GraphQLNonNull(GraphQLString) },
         titulo: { type: new GraphQLNonNull(GraphQLString) },
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-        modalidad: { type: new GraphQLNonNull(GraphQLString) },
+        modalidad: { type: GraphQLString }, // opcional
         categoria: { type: new GraphQLNonNull(GraphQLString) },
         resumen: { type: new GraphQLNonNull(GraphQLString) },
         fecha: { type: new GraphQLNonNull(GraphQLString) },
       },
       resolve: async (_p, args, ctx) => {
         const u = requireAuth(ctx);
-        return altaVoluntariado({ ...args, id_usuario: u.id });
+
+        const created = await altaVoluntariado({
+          ...args,
+          modalidad: args.modalidad || "Presencial", // ✅ default válido
+          id_usuario: u.id, // ✅ el dueño siempre es el logueado
+        });
+
+        ctx.io?.to("admins").emit("voluntariado:created", { byUserId: u.id });
+        ctx.io
+          ?.to(`user:${u.id}`)
+          .emit("voluntariado:created", { byUserId: u.id });
+
+        return created; // ✅ devuelve el creado (no crees otro)
       },
     },
 
@@ -306,7 +318,7 @@ const RootMutation = new GraphQLObjectType({
         type: { type: GraphQLString },
         titulo: { type: GraphQLString },
         id_usuario: { type: GraphQLInt },
-        modalidad: { type: GraphQLString },
+        // modalidad: { type: GraphQLString },
         categoria: { type: GraphQLString },
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
@@ -353,7 +365,16 @@ const RootMutation = new GraphQLObjectType({
       },
       resolve: async (_p, { id_voluntariado }, ctx) => {
         const u = requireAuth(ctx);
-        return guardarSeleccionado(u.id, id_voluntariado);
+
+        const sel = await guardarSeleccionado(u.id, id_voluntariado);
+
+        // 🔔 PUB/SUB: avisar para refrescar dashboard
+        ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
+        ctx.io
+          ?.to(`user:${u.id}`)
+          .emit("seleccionado:changed", { userId: u.id });
+
+        return sel;
       },
     },
 
@@ -365,11 +386,20 @@ const RootMutation = new GraphQLObjectType({
 
         if (!isAdmin(u)) {
           const misSel = await seleccionadosPorUsuario(u.id);
-          if (!misSel.some((s) => s.id === id))
+          if (!misSel.some((s) => s.id === id)) {
             throw new Error("Acceso denegado");
+          }
         }
 
-        return borrarSeleccionado(id);
+        const ok = await borrarSeleccionado(id);
+
+        // 🔔 PUB/SUB: avisar para refrescar dashboard
+        ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
+        ctx.io
+          ?.to(`user:${u.id}`)
+          .emit("seleccionado:changed", { userId: u.id });
+
+        return ok;
       },
     },
   },

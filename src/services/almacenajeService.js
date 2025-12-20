@@ -123,7 +123,7 @@ export async function voluntariadosPorUsuario(id_usuario) {
 
 export async function getCategorias() {
   const docs = await Categoria.find().sort({ id: 1 }).lean();
-  return ["Todas", ...docs.map((c) => c.nombre)];
+  return docs.map((c) => c.nombre);
 }
 
 /* ========================================================================== */

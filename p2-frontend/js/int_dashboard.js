@@ -38,7 +38,7 @@ async function apiVoluntariados() {
   const data = await gqlFetch(`
     query {
       voluntariados {
-        id type titulo id_usuario modalidad categoria resumen fecha
+        id type titulo id_usuario nombre_usuario modalidad categoria resumen fecha
       }
     }
   `);
@@ -134,7 +134,9 @@ async function renderLayout(container, categorias) {
           .map(
             (c) => `
               <button
-                class="tab-pill tab-${c} ${c === STATE.categoria ? "active" : ""}"
+                class="tab-pill tab-${c} ${
+              c === STATE.categoria ? "active" : ""
+            }"
                 data-cat="${c}"
                 type="button"
               >
@@ -149,7 +151,9 @@ async function renderLayout(container, categorias) {
             .map(
               (c) => `
               <button
-                class="tab-pill tab-${c} ${c === STATE.filtroSeleccion ? "active" : ""}"
+                class="tab-pill tab-${c} ${
+                c === STATE.filtroSeleccion ? "active" : ""
+              }"
                 data-cat="${c}"
                 type="button"
               >
@@ -185,8 +189,9 @@ function cardHTML(v) {
       ? `<span class="badge badge-oferta">Oferta</span>`
       : `<span class="badge badge-peticion">Petición</span>`;
 
-  // ✅ antes era v.autor (NO existe). Usamos id_usuario
-  const autorTxt = v.id_usuario != null ? `Usuario #${v.id_usuario}` : "-";
+  const autorTxt =
+    v.nombre_usuario ||
+    (v.id_usuario != null ? `Usuario #${v.id_usuario}` : "-");
 
   return `
     <div class="col" draggable="true" data-id="${v.id}">
@@ -197,7 +202,9 @@ function cardHTML(v) {
             <div class="small small-muted fw-semibold">${v.categoria}</div>
           </div>
           <h5 class="mb-1">${v.titulo}</h5>
-          <div class="small small-muted mb-2">por <strong>${autorTxt}</strong> · ${v.modalidad}</div>
+          <div class="small small-muted mb-2">por <strong>${autorTxt}</strong> · ${
+    v.modalidad
+  }</div>
           <p class="flex-grow-1 mb-2">${v.resumen || ""}</p>
           <div class="d-flex justify-content-between align-items-center">
             <button class="btn btn-sm btn-outline-secondary" type="button">Ver detalle</button>
@@ -222,7 +229,9 @@ function applyFilters(list) {
       (v) =>
         v.titulo.toLowerCase().includes(q) ||
         (v.resumen || "").toLowerCase().includes(q) ||
-        String(v.id_usuario ?? "").toLowerCase().includes(q) // ✅ filtrar por autor (id_usuario)
+        String(v.id_usuario ?? "")
+          .toLowerCase()
+          .includes(q) // ✅ filtrar por autor (id_usuario)
     );
   }
 
@@ -233,7 +242,9 @@ function applyFilters(list) {
 function buildPager(page, pages) {
   if (pages <= 1) return "";
   const item = (p, label = p, disabled = false, active = false) => `
-    <li class="page-item ${disabled ? "disabled" : ""} ${active ? "active" : ""}">
+    <li class="page-item ${disabled ? "disabled" : ""} ${
+    active ? "active" : ""
+  }">
       <a class="page-link" href="#" data-page="${p}">${label}</a>
     </li>
   `;
@@ -329,9 +340,10 @@ function renderSeleccionados() {
       const catCls = categoryClass(voluntariado.categoria);
 
       const autorTxt =
-        voluntariado.id_usuario != null
+        voluntariado.nombre_usuario ||
+        (voluntariado.id_usuario != null
           ? `Usuario #${voluntariado.id_usuario}`
-          : "-";
+          : "-");
 
       return `
         <div class="card card-selected-item card-ld ${catCls} p-2 shadow-sm" draggable="true" data-id-seleccionado="${id}">
@@ -446,7 +458,10 @@ function addDragAndDropListeners() {
         await apiBorrarSeleccionado(seleccionId);
         STATE._selMap.delete(idVol);
       } catch (err) {
-        console.error("[dashboard] error eliminando seleccionado en servidor", err);
+        console.error(
+          "[dashboard] error eliminando seleccionado en servidor",
+          err
+        );
       }
     }
 
