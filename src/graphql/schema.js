@@ -1,7 +1,6 @@
 // src/graphql/schema.js
 
 import { GraphQLSchema, GraphQLObjectType, GraphQLString, GraphQLList, GraphQLBoolean, GraphQLInt, GraphQLNonNull } from "graphql";
-import { Usuario } from "../models/Usuario.js";
 
 import {
   // Usuarios
@@ -27,12 +26,13 @@ import {
   borrarSeleccionado,
 } from "../services/almacenajeService.js";
 
+import { Usuario } from "../models/Usuario.js";
+
 /* =========================
  * Helpers: sesión y roles
  * ========================= */
 function sanitizeUser(u) {
   if (!u) return null;
-  // eslint-disable-next-line no-unused-vars
   const { password, ...safe } = u;
   return safe;
 }
@@ -48,18 +48,24 @@ function requireAdmin(ctx) {
   if (user.rol !== "admin") throw new Error("No autorizado (solo admin)");
   return user;
 }
+/**
+ * Añade `creadorNombre` a cada voluntariado:
+ * - Busca el usuario por id_usuario
+ * - Si existe devuelve su nombre
+ * - Si no existe, devuelve un fallback
+ */
+async function withCreatorName(vols) {
+  const arr = Array.isArray(vols) ? vols : [];
+  if (arr.length === 0) return [];
 
-async function withCreadorNombre(vols) {
-  const ids = [...new Set((vols || []).map((v) => v.id_usuario).filter((v) => v != null))];
-
-  if (ids.length === 0) return (vols || []).map((v) => ({ ...v, creadorNombre: "Anónimo" }));
-
+  // ids únicos
+  const ids = [...new Set(arr.map((v) => Number(v.id_usuario)).filter(Boolean))];
   const users = await Usuario.find({ id: { $in: ids } }, { id: 1, nombre: 1 }).lean();
   const map = new Map(users.map((u) => [u.id, u.nombre]));
 
-  return (vols || []).map((v) => ({
+  return arr.map((v) => ({
     ...v,
-    creadorNombre: map.get(v.id_usuario) || "Anónimo",
+    creadorNombre: map.get(Number(v.id_usuario)) || `Usuario #${v.id_usuario}`,
   }));
 }
 
@@ -165,19 +171,22 @@ const RootQuery = new GraphQLObjectType({
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_parent, _args, ctx) => {
         const u = requireAuth(ctx);
-        if (u.rol === "admin") {
-          return await listarVoluntariados();
-        }
-        return await voluntariadosPorUsuario(u.id);
+
+        const vols = u.rol === "admin" ? await listarVoluntariados() : await voluntariadosPorUsuario(u.id);
+
+        return await withCreatorName(vols);
       },
     },
-
+    /**
+     * Feed global: devuelve TODOS los voluntariados (para Dashboard),
+     * pero requiere estar autenticado.
+     */
     voluntariadosFeed: {
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_parent, _args, ctx) => {
-        requireAuth(ctx); // si quieres permitir sin login, quita esto
-        const vols = await listarVoluntariados(); // TODOS
-        return await withCreadorNombre(vols);
+        requireAuth(ctx);
+        const vols = await listarVoluntariados();
+        return await withCreatorName(vols);
       },
     },
 
@@ -186,11 +195,13 @@ const RootQuery = new GraphQLObjectType({
       args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
       resolve: async (_parent, { id_usuario }, ctx) => {
         const u = requireAuth(ctx);
-        if (u.rol === "admin") {
-          return await voluntariadosPorUsuario(id_usuario);
+
+        if (u.rol !== "admin" && u.id !== id_usuario) {
+          throw new Error("No autorizado");
         }
-        if (u.id !== id_usuario) throw new Error("No autorizado");
-        return await voluntariadosPorUsuario(id_usuario);
+
+        const vols = await voluntariadosPorUsuario(id_usuario);
+        return await withCreatorName(vols);
       },
     },
 
@@ -207,22 +218,28 @@ const RootQuery = new GraphQLObjectType({
     // Admin puede ver todas las selecciones
     seleccionados: {
       type: new GraphQLList(SeleccionadoType),
-      resolve: async (_p, _a, ctx) => {
-        requireAdmin(ctx);
-        return await listarSeleccionados();
+      resolve: async (_parent, _args, ctx) => {
+        const u = requireAuth(ctx);
+
+        // admin -> todos
+        if (u.rol === "admin") return await listarSeleccionados();
+
+        // user -> solo los suyos
+        return await seleccionadosPorUsuario(u.id);
       },
     },
 
     // Admin puede pedir cualquier usuario; user solo las suyas
     seleccionadosPorUsuario: {
       type: new GraphQLList(SeleccionadoType),
-      args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: async (_p, { id_usuario }, ctx) => {
+      args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
+      resolve: async (_parent, { id_usuario }, ctx) => {
         const u = requireAuth(ctx);
-        if (u.rol === "admin") return await seleccionadosPorUsuario(id_usuario);
-        if (u.id !== id_usuario) throw new Error("No autorizado");
+
+        if (u.rol !== "admin" && u.id !== id_usuario) {
+          throw new Error("No autorizado");
+        }
+
         return await seleccionadosPorUsuario(id_usuario);
       },
     },
@@ -329,10 +346,14 @@ const RootMutation = new GraphQLObjectType({
       },
       resolve: async (_parent, args, ctx) => {
         const u = requireAuth(ctx);
+
         if (u.rol !== "admin" && u.id !== args.id_usuario) {
           throw new Error("No autorizado");
         }
-        return await altaVoluntariado(args);
+
+        const v = await altaVoluntariado(args);
+        const [v2] = await withCreatorName([v]);
+        return v2;
       },
     },
 
@@ -401,15 +422,18 @@ const RootMutation = new GraphQLObjectType({
     borrarSeleccionado: {
       type: GraphQLBoolean,
       args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
-      resolve: async (_p, { id }, ctx) => {
+      resolve: async (_parent, { id }, ctx) => {
         const u = requireAuth(ctx);
 
-        if (u.rol !== "admin") {
-          // Verificamos que esa selección pertenece al user
-          const mias = await seleccionadosPorUsuario(u.id);
-          const esMia = mias.some((s) => s.id === id);
-          if (!esMia) throw new Error("No autorizado");
+        // admin: puede borrar cualquiera
+        if (u.rol === "admin") {
+          return await borrarSeleccionado(id);
         }
+
+        // user: solo si la selección es suya
+        const mis = await seleccionadosPorUsuario(u.id);
+        const esMia = (mis || []).some((s) => s.id === id);
+        if (!esMia) throw new Error("No autorizado");
 
         return await borrarSeleccionado(id);
       },

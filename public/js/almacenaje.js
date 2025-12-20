@@ -170,33 +170,8 @@ export async function isLoggedIn() {
 }
 
 /**
- * ----- Voluntariados (IndexedDB, funciones asíncronas) -----
+ * ----- Voluntariados (P4: GraphQL) -----
  */
-
-// Función que se reutiliza en todas las operaciones de voluntariados
-function abrirDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("VoluntariadoDB", 1);
-
-    request.onupgradeneeded = function (event) {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains("voluntariados")) {
-        db.createObjectStore("voluntariados", { keyPath: "id", autoIncrement: true });
-      }
-
-      //almacenaje de voluntariados seleccionados
-      if (!db.objectStoreNames.contains("seleccionados")) {
-        db.createObjectStore("seleccionados", { keyPath: "id", autoIncrement: true });
-      }
-    };
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(event.target.error);
-    };
-  });
-}
 
 /**
  * Añade un nuevo voluntariado a la base de datos (async).
@@ -218,13 +193,14 @@ export async function altaVoluntariado(voluntariado) {
         resumen:$resumen,
         fecha:$fecha
       ){
-        id id_usuario type titulo categoria modalidad resumen fecha
+        id id_usuario type titulo categoria modalidad resumen fecha creadorNombre
       }
     }
   `;
 
   const variables = {
-    type: voluntariado.type || voluntariado.tipo || "petición",
+    // Nota: en backend el enum suele ser "oferta" | "petición"
+    type: (voluntariado.type || voluntariado.tipo || "oferta").toLowerCase(),
     id_usuario: user.id,
     titulo: voluntariado.titulo,
     categoria: voluntariado.categoria || "General",
@@ -238,25 +214,24 @@ export async function altaVoluntariado(voluntariado) {
 }
 
 /**
- * Devuelve un array con todos los voluntariados de la base de datos (async).
+ * Devuelve voluntariados según permisos:
+ * - admin: todos
+ * - user: solo los suyos
  * @returns {Promise<Array>}
  */
 export async function listarVoluntariados() {
-  const q = `query { voluntariados { id id_usuario type titulo categoria modalidad resumen fecha } }`;
+  const q = `query { voluntariados { id id_usuario type titulo categoria modalidad resumen fecha creadorNombre } }`;
   const data = await gql(q);
   return data.voluntariados || [];
 }
 
+/**
+ * Feed global (para el Dashboard): devuelve TODOS, pero requiere login.
+ */
 export async function listarVoluntariadosFeed() {
-  const query = `
-    query {
-      voluntariadosFeed {
-        id type titulo id_usuario modalidad categoria resumen fecha creadorNombre
-      }
-    }
-  `;
-  const data = await gql(query);
-  return data.voluntariadosFeed;
+  const q = `query { voluntariadosFeed { id id_usuario type titulo categoria modalidad resumen fecha creadorNombre } }`;
+  const data = await gql(q);
+  return data.voluntariadosFeed || [];
 }
 
 /**
@@ -332,7 +307,7 @@ export async function voluntariadosPorUsuario(email) {
   const userData = await gql(qUser, { email });
   if (!userData.usuarioPorEmail) return [];
 
-  const qVols = `query($id:Int!){ voluntariadosPorUsuario(id_usuario:$id){ id id_usuario type titulo categoria modalidad resumen fecha } }`;
+  const qVols = `query($id:Int!){ voluntariadosPorUsuario(id_usuario:$id){ id id_usuario type titulo categoria modalidad resumen fecha creadorNombre } }`;
   const volsData = await gql(qVols, { id: userData.usuarioPorEmail.id });
   return volsData.voluntariadosPorUsuario || [];
 }

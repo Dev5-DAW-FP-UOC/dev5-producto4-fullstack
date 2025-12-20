@@ -43,7 +43,7 @@ function normType(t) {
 }
 
 function getAutorLabel(v) {
-  return v.creadoPor || v.autor || (v.id_usuario != null ? `Usuario #${v.id_usuario}` : "Anónimo");
+  return v.creadorNombre || v.creadoPor || v.autor || (v.id_usuario ? `Usuario #${v.id_usuario}` : "Anónimo");
 }
 
 function itemHTML(v) {
