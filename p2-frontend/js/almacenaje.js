@@ -182,7 +182,33 @@ export function getActiveUser() {
 }
 
 export function setActiveUser(user) {
-  localStorage.setItem("activeUser", JSON.stringify(user));
+  if (user === null || user === undefined) {
+    localStorage.removeItem("activeUser");
+  } else {
+    localStorage.setItem("activeUser", JSON.stringify(user));
+  }
+}
+
+// Try to populate `activeUser` from server session if localStorage is empty.
+export async function ensureActiveUserFromSession() {
+  try {
+    const current = getActiveUser();
+    if (current) return current;
+    const res = await fetch("http://localhost:4000/test", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const u = data?.session?.user ?? null;
+    // Only set activeUser from session if the session user contains an email.
+    // This avoids overwriting a richer local `activeUser` (which includes email)
+    // with a minimal session object that would make the UI lose the email.
+    if (u && u.email) {
+      setActiveUser(u);
+      return u;
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
 }
 
 // =========================

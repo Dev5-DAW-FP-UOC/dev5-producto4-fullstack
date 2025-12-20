@@ -1,6 +1,6 @@
 // js/login.js
 
-import { setActiveUser } from "./almacenaje.js";
+import { setActiveUser, getActiveUser, logout } from "./almacenaje.js";
 
 const $ = (s, ctx = document) => ctx.querySelector(s);
 
@@ -15,6 +15,32 @@ function showMsg(text, type = "info") {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  (async () => {
+    try {
+      const m = await import('./almacenaje.js');
+      await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
+    } catch (e) {}
+    // Ensure navbar reflects current session and renders logout button
+    const active = getActiveUser();
+    const badge = document.getElementById('userBadge') || document.querySelector('.navbar-text');
+    if (badge) {
+      badge.textContent = active?.nombre || '-no login-';
+      let logoutBtn = document.getElementById('logoutBtn');
+      if (!logoutBtn) {
+        logoutBtn = document.createElement('button');
+        logoutBtn.id = 'logoutBtn';
+        logoutBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+        logoutBtn.textContent = 'Logout';
+        badge.insertAdjacentElement('afterend', logoutBtn);
+        logoutBtn.addEventListener('click', async () => {
+          try { await logout(); } catch (err) { console.error('Logout failed', err); }
+          setActiveUser(null);
+          badge.textContent = '-no login-';
+        });
+      }
+      logoutBtn.style.display = active ? 'inline-block' : 'none';
+    }
+  })();
   const form = $("#loginForm");
   if (!form) return;
 

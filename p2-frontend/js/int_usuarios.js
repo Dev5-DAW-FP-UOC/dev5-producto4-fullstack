@@ -1,5 +1,5 @@
 // js/users.js
-import { listarUsuarios, altaUsuario, borrarUsuario as borrarUsuarioGQL, getActiveUser } from "./almacenaje.js";
+import { listarUsuarios, altaUsuario, borrarUsuario as borrarUsuarioGQL, getActiveUser, setActiveUser, logout } from "./almacenaje.js";
 const $ = (s, ctx = document) => ctx.querySelector(s);
 
 function showMsg(text, type = "info") {
@@ -22,6 +22,21 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
+  // Ensure logout button exists and is wired
+  let logoutBtn = document.getElementById('logoutBtn');
+  if (!logoutBtn) {
+    logoutBtn = document.createElement('button');
+    logoutBtn.id = 'logoutBtn';
+    logoutBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+    logoutBtn.textContent = 'Logout';
+    badge.insertAdjacentElement('afterend', logoutBtn);
+    logoutBtn.addEventListener('click', async () => {
+      try { await logout(); } catch (err) { console.error('Logout failed', err); }
+      setActiveUser(null);
+      setNavbarUser(null);
+    });
+  }
+  logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
 }
 
 async function drawTable() {
@@ -81,7 +96,11 @@ async function borrarUsuario(email) {
 
 
 document.addEventListener("DOMContentLoaded", async () => {
-  // Usuario activo → navbar
+  // Ensure active user synced from server session
+  try {
+    const m = await import('./almacenaje.js');
+    await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
+  } catch (e) {}
   const active = getActiveUser();
   setNavbarUser(active?.nombre);
 
@@ -123,4 +142,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     });
   }
+});
+
+// Re-sync on focus (in case login happened in another tab)
+window.addEventListener('focus', async () => {
+  try {
+    const m = await import('./almacenaje.js');
+    await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
+    const active = m.getActiveUser();
+    setNavbarUser(active?.nombre);
+  } catch (e) {}
 });

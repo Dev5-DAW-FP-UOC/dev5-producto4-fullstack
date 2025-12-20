@@ -37,6 +37,7 @@ export const schema = buildSchema(`
   type Mutation {
     altaUsuario(nombre: String!, email: String!, password: String!, rol: String!): Usuario
     borrarUsuario(id: ID!): Boolean
+    login(email: String!, password: String!): LoginResult
     altaVoluntariado(
       type: String!
       titulo: String!
@@ -47,6 +48,13 @@ export const schema = buildSchema(`
       id_usuario: Int!
     ): Voluntariado
     borrarVoluntariado(id: ID!): Boolean
+  }
+
+  type LoginResult {
+    email: String
+    nombre: String
+    rol: String
+    token: String
   }
 `);
 
@@ -160,5 +168,31 @@ export const root = {
       console.error('Error in borrarVoluntariado resolver:', err);
       return false;
     }
+  }
+};
+
+// Add login resolver which receives (args, context)
+root.login = async ({ email, password }, context) => {
+  try {
+    const req = context?.req;
+    const usuario = await Usuario.findOne({ email }).lean();
+    if (!usuario || usuario.password !== password) {
+      throw new Error('Email o contraseña incorrectos');
+    }
+
+    // set session if request available (include email)
+    if (req && req.session) {
+      req.session.user = { id: usuario.id, rol: usuario.rol, nombre: usuario.nombre };
+      // ensure session is saved before returning token
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => (err ? reject(err) : resolve()));
+      });
+    }
+
+    const token = req && req.sessionID ? String(req.sessionID) : `token_${Date.now()}`;
+    return { email: usuario.email, nombre: usuario.nombre, rol: usuario.rol, token };
+  } catch (err) {
+    console.error('Error in login resolver:', err);
+    throw err;
   }
 };

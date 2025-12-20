@@ -1,7 +1,7 @@
 // js/volunteers.js
 // Persistencia con IndexedDB + gráfico Canvas + UI
 
-import { listarUsuarios, altaVoluntariado, borrarVoluntariado, listarVoluntariados, getActiveUser, borrarSeleccionados } from "./almacenaje.js";
+import { listarUsuarios, altaVoluntariado, borrarVoluntariado, listarVoluntariados, getActiveUser, borrarSeleccionados, setActiveUser, logout, ensureActiveUserFromSession } from "./almacenaje.js";
 
 const $ = (s, ctx = document) => ctx.querySelector(s);
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -22,6 +22,21 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
+  // Ensure logout button exists and is wired
+  let logoutBtn = document.getElementById('logoutBtn');
+  if (!logoutBtn) {
+    logoutBtn = document.createElement('button');
+    logoutBtn.id = 'logoutBtn';
+    logoutBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+    logoutBtn.textContent = 'Logout';
+    badge.insertAdjacentElement('afterend', logoutBtn);
+    logoutBtn.addEventListener('click', async () => {
+      try { await logout(); } catch (err) { console.error('Logout failed', err); }
+      setActiveUser(null);
+      setNavbarUser('-no login-');
+    });
+  }
+  logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
 }
 function fmtFecha(iso) {
   if (!iso) return "";
@@ -253,14 +268,21 @@ function drawCanvasChart() {
 document.addEventListener("DOMContentLoaded", async () => {
   // await inicializarDatos();
 
-  const active = getActiveUser();
+  // Ensure activeUser exists in localStorage, try server session if necessary
+  let active = await ensureActiveUserFromSession();
+  if (!active) active = getActiveUser();
   setNavbarUser(active?.nombre);
 
   const form = document.getElementById("formVol");
-  if (form && active?.email) {
+  if (form) {
     const emailInput = form.querySelector('input[name="email"], #email');
-    if (emailInput && !emailInput.value) {
-      emailInput.value = active.email;
+    if (emailInput) {
+      // show the logged user's email but keep the field non-editable
+      const emailToShow = active?.email || '';
+      emailInput.value = emailToShow;
+      // also set placeholder in case styles hide the value for disabled inputs
+      emailInput.placeholder = emailToShow;
+      emailInput.disabled = true;
     }
   }
   const fch = $("#fecha");

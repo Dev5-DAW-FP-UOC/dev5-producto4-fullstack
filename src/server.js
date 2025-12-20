@@ -21,15 +21,27 @@ import path from "path";
 
 const app = express();
 
-// Debug route to check server health (must be after app is initialized)
-app.get('/test', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
 
 // CORS: Permite todos los métodos y headers necesarios para GraphQL y credenciales
+// Allow both localhost and 127.0.0.1 on port 5500 (file server)
+const allowedOrigins = ['http://localhost:5500', 'http://127.0.0.1:5500'];
+
+// Log incoming GraphQL/CORS relevant requests for debugging
+app.use((req, res, next) => {
+  if (req.path.startsWith('/graphql') || req.headers.origin) {
+    console.log(`[HTTP] ${req.method} ${req.path} Origin:${req.headers.origin || 'none'} Content-Type:${req.headers['content-type'] || 'none'}`);
+  }
+  next();
+});
+
 app.use(cors({
-  origin: 'http://localhost:5500',
+  origin: (origin, callback) => {
+    // Allow tools / server-side requests when origin is undefined
+    if (!origin) return callback(null, true);
+    const allowed = allowedOrigins.includes(origin);
+    return callback(null, allowed);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -37,7 +49,11 @@ app.use(cors({
 
 // Preflight OPTIONS handler for /graphql
 app.options('/graphql', cors({
-  origin: 'http://localhost:5500',
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -58,10 +74,14 @@ const PORT = process.env.PORT || 4000;
 app.use(express.json());
 
 // Configuración de sesiones
+// Ensure we have a session secret (fallback for local development)
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_local_secret_9f3c1b2a5d7e4c1f';
+if (!process.env.SESSION_SECRET) console.warn('WARNING: using default SESSION_SECRET; set SESSION_SECRET in .env for production');
+
 app.use(
   session({
     name: "connect.sid",
-    secret: process.env.SESSION_SECRET,
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false, // 🔴 CLAVE
     cookie: {
@@ -165,7 +185,10 @@ app.get("/usuarios", requireAdmin, async (_req, res) => {
 app.use(
   '/graphql',
   cors({
-    origin: 'http://localhost:5500',
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      return callback(null, allowedOrigins.includes(origin));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -174,7 +197,7 @@ app.use(
   graphqlHTTP((req) => ({
     schema,
     rootValue: root,
-    context: { user: req.session?.user ?? null },
+    context: { req, user: req.session?.user ?? null },
     graphiql: true,
     customFormatErrorFn: (err) => {
       console.error('GraphQL error:', err);
@@ -182,6 +205,16 @@ app.use(
     },
   }))
 );
+
+// JSON error handler for GraphQL route to avoid HTML responses
+app.use((err, req, res, next) => {
+  if (req.path && req.path.startsWith('/graphql')) {
+    console.error('GraphQL route error:', err && err.message);
+    // Return JSON error so clients attempting to parse JSON won't get HTML
+    return res.status(500).json({ message: err?.message || 'Internal Server Error' });
+  }
+  next(err);
+});
 
 // Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
 // Conectamos a Mongo

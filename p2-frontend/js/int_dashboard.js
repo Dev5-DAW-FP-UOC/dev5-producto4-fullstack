@@ -1,6 +1,6 @@
 // js/dashboard.js
 
-import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser } from "./almacenaje.js";
+import {listarVoluntariados, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion, setActiveUser, getActiveUser, logout } from "./almacenaje.js";
 // Helper: fetch current user from backend session
 async function fetchSessionUser() {
   try {
@@ -42,6 +42,25 @@ function setNavbarUser(name) {
   }
   badge.textContent = name || "-no login-";
   console.log('badge textContent set to:', badge.textContent);
+  // Ensure logout button exists and is wired
+  let logoutBtn = document.getElementById('logoutBtn');
+  if (!logoutBtn) {
+    logoutBtn = document.createElement('button');
+    logoutBtn.id = 'logoutBtn';
+    logoutBtn.className = 'btn btn-sm btn-outline-secondary ms-2';
+    logoutBtn.textContent = 'Logout';
+    badge.insertAdjacentElement('afterend', logoutBtn);
+    logoutBtn.addEventListener('click', async () => {
+      try {
+        await logout();
+      } catch (err) {
+        console.error('Logout failed', err);
+      }
+      setActiveUser(null);
+      setNavbarUser('-no login-');
+    });
+  }
+  logoutBtn.style.display = name && name !== '-no login-' ? 'inline-block' : 'none';
 }
 
 // Formatea "YYYY-MM-DD" a "dd/mm/yyyy"
@@ -294,7 +313,15 @@ function renderSeleccionados() {
 // Init
 
 document.addEventListener("DOMContentLoaded", () => {
-  initDashboard();
+  (async () => {
+    // ensure frontend knows about server session on load
+    try {
+      await import('./almacenaje.js').then(m => m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
+    } catch (e) {
+      // ignore
+    }
+    initDashboard();
+  })();
 });
 
 async function initDashboard() {
@@ -338,6 +365,15 @@ async function initDashboard() {
   });
 
   // NOTA: Para evitar problemas de sesión/cookies, abre SIEMPRE el frontend desde http://localhost:5500 o similar, NUNCA como file://
+  // Also re-sync active user when window gains focus (user may have logged in in other tab)
+  window.addEventListener('focus', async () => {
+    try {
+      const m = await import('./almacenaje.js');
+      await (m.ensureActiveUserFromSession && m.ensureActiveUserFromSession());
+      const active = m.getActiveUser();
+      setNavbarUser(active?.nombre || '-no login-');
+    } catch (e) {}
+  });
   // Si puedes, sirve el frontend desde el mismo servidor Express para evitar CORS y problemas de sesión.
 
   // Listeners de búsqueda y pestañas
