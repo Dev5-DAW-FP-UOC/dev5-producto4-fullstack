@@ -280,6 +280,32 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
+    // ----- LOGOUT -----
+
+    logout: {
+      type: GraphQLBoolean,
+      resolve: async (_p, _a, ctx) => {
+        // Si no hay sesión, para el front lo consideramos "ok" igualmente
+        if (!ctx?.req?.session) return true;
+
+        // 1) Destruir sesión en store (MongoStore)
+        await new Promise((resolve, reject) => {
+          ctx.req.session.destroy((err) => (err ? reject(err) : resolve()));
+        });
+
+        // 2) Borrar cookie en el navegador
+        // IMPORTANTE: debe coincidir con cookie.name y opciones (sameSite/secure)
+        ctx.res.clearCookie("volunet.sid", {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: false, // en local sin https
+          path: "/",
+        });
+
+        return true;
+      },
+    },
+
     // ----- VOLUNTARIADOS -----
 
     crearVoluntariado: {

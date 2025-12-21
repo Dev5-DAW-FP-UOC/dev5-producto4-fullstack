@@ -18,6 +18,52 @@ function setNavbarUser(name) {
   if (badge) badge.textContent = name || "-no login-";
 }
 
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document
+    .querySelector('a[href="./dashboard.html"]')
+    ?.closest("li");
+  const linkVoluntariados = document
+    .querySelector('a[href="./voluntariados.html"]')
+    ?.closest("li");
+  const linkUsuarios = document
+    .querySelector('a[href="./usuarios.html"]')
+    ?.closest("li");
+  const linkLogin = document
+    .querySelector('a[href="./login.html"]')
+    ?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    // ❌ NO hay sesión
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+
+    return;
+  }
+
+  // ✅ Hay sesión
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  // 👮 Usuarios solo admin
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const form = $("#loginForm");
   if (!form) return;
@@ -55,7 +101,6 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(() => {
         window.location.href = "dashboard.html";
       }, 500);
-
     } catch (err) {
       showMsg(err.message, "danger");
     }

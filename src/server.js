@@ -73,12 +73,14 @@ app.all(
   createHandler({
     schema,
     context: (req, res) => ({
-      req: req.raw,
-      res: res.raw ?? res,
-      io, // ahora GraphQL puede emitir eventos
+      req: req.raw, // ✅ aquí vive req.session (express-session lo engancha aquí en graphql-http)
+      res,          // ✅ Express res (tiene clearCookie)
+      io,
     }),
   })
 );
+
+
 
 
 // ✅ 1) conectar primero
@@ -87,7 +89,13 @@ await connectMongoose();
 // ✅ 2) luego seed
 await initMongoData();
 
-app.listen(PORT, () => {
+// app.listen(PORT, () => {
+//   console.log(`Servidor escuchando en http://localhost:${PORT}`);
+//   console.log(`Endpoint GraphQL en http://localhost:${PORT}/graphql`);
+// });
+
+
+server.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
   console.log(`Endpoint GraphQL en http://localhost:${PORT}/graphql`);
 });

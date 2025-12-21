@@ -34,6 +34,11 @@ async function apiCategorias() {
   return data.categorias || ["Todas"];
 }
 
+async function apiLogout() {
+  const data = await gqlFetch(`mutation { logout }`);
+  return data.logout;
+}
+
 async function apiVoluntariados() {
   const data = await gqlFetch(`
     query {
@@ -88,6 +93,25 @@ function setNavbarUser(name) {
     container?.appendChild(badge);
   }
   badge.textContent = name || "-no login-";
+}
+
+function bindLogoutButton() {
+  const btn = document.getElementById("btnLogout");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      await apiLogout();
+    } catch (err) {
+      console.warn("[logout] fallo en servidor, limpio igual", err);
+    }
+
+    // UI reset
+    setNavbarUser("-no login-");
+
+    // Redirigir a login
+    window.location.href = "./login.html";
+  });
 }
 
 // Formatea "YYYY-MM-DD" a "dd/mm/yyyy"
@@ -378,6 +402,52 @@ async function comprobarSesion() {
   }
 }
 
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document
+    .querySelector('a[href="./dashboard.html"]')
+    ?.closest("li");
+  const linkVoluntariados = document
+    .querySelector('a[href="./voluntariados.html"]')
+    ?.closest("li");
+  const linkUsuarios = document
+    .querySelector('a[href="./usuarios.html"]')
+    ?.closest("li");
+  const linkLogin = document
+    .querySelector('a[href="./login.html"]')
+    ?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    // ❌ NO hay sesión
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+
+    return;
+  }
+
+  // ✅ Hay sesión
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  // 👮 Usuarios solo admin
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
+}
+
 // Init
 document.addEventListener("DOMContentLoaded", async () => {
   const me = await comprobarSesion();
@@ -385,6 +455,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   STATE.me = me;
   setNavbarUser(me.nombre);
+  bindLogoutButton();
 
   await initDashboard();
 });

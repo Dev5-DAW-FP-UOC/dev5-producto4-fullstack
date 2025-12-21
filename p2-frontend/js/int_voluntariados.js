@@ -332,6 +332,52 @@ function drawCanvasChart() {
   });
 }
 
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document
+    .querySelector('a[href="./dashboard.html"]')
+    ?.closest("li");
+  const linkVoluntariados = document
+    .querySelector('a[href="./voluntariados.html"]')
+    ?.closest("li");
+  const linkUsuarios = document
+    .querySelector('a[href="./usuarios.html"]')
+    ?.closest("li");
+  const linkLogin = document
+    .querySelector('a[href="./login.html"]')
+    ?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    // ❌ NO hay sesión
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+
+    return;
+  }
+
+  // ✅ Hay sesión
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  // 👮 Usuarios solo admin
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
+}
+
 // ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
   // Nota: cambia disabled -> readonly en el HTML para que se vea siempre el email
