@@ -22,10 +22,13 @@
         </button>
         <div id="nav" class="collapse navbar-collapse">
           <ul class="navbar-nav me-auto">
-            <li class="nav-item"><a class="nav-link active" href="./dashboard.html">Dashboard</a></li>
-            <li class="nav-item"><a class="nav-link" href="./voluntariados.html">Voluntariados</a></li>
-            <li class="nav-item"><a class="nav-link" href="./usuarios.html">Usuarios</a></li>
-            <li class="nav-item"><a class="nav-link" href="./login.html">Login</a></li>
+            <li class="nav-item"><a class="nav-link active" id="navDashboard" href="./dashboard.html">Dashboard</a></li>
+            <li class="nav-item"><a class="nav-link" id="navVoluntariados" href="./voluntariados.html">Voluntariados</a></li>
+            <li class="nav-item"><a class="nav-link" id="navUsuarios" href="./usuarios.html">Usuarios</a></li>
+            <li class="nav-item"><a class="nav-link" id="navLogin" href="./login.html">Login</a></li>
+            <li class="nav-item d-none" id="navLogoutItem">
+              <a class="nav-link" href="#" id="navLogout">Logout</a>
+            </li>
           </ul>
           <span class="navbar-text small text-muted" id="userBadge">-no login-</span>
         </div>

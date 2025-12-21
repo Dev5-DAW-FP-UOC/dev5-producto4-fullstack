@@ -165,6 +165,21 @@ const RootQuery = new GraphQLObjectType({
         return sanitizeUser(await buscarUsuarioPorId(id));
       },
     },
+    // ----- VOLUNTARIADOS Y CATEGORIAS Público (para visitantes) -----
+    voluntariadosPublicos: {
+      type: new GraphQLList(VoluntariadoType),
+      resolve: async () => {
+        const vols = await listarVoluntariados();
+        return await withCreatorName(vols);
+      },
+    },
+
+    categoriasPublicas: {
+      type: new GraphQLList(GraphQLString),
+      resolve: async () => {
+        return await getCategorias();
+      },
+    },
 
     // ----- VOLUNTARIADOS (admin: todos | user: solo los suyos) -----
     voluntariados: {

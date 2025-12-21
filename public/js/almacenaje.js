@@ -23,6 +23,11 @@ export function getSeleccion() {
   return ["Todos"];
 }
 
+export async function getCategoriasPublicas() {
+  const data = await gql(`query { categoriasPublicas }`);
+  return data?.categoriasPublicas?.length ? data.categoriasPublicas : ["Todas"];
+}
+
 // === CRUD y autenticación para la app de voluntariado ===
 
 // ------ Usuarios (LocalStorage) ------
@@ -232,6 +237,12 @@ export async function listarVoluntariadosFeed() {
   const q = `query { voluntariadosFeed { id id_usuario type titulo categoria modalidad resumen fecha creadorNombre } }`;
   const data = await gql(q);
   return data.voluntariadosFeed || [];
+}
+
+export async function listarVoluntariadosPublicos() {
+  const q = `query { voluntariadosPublicos { id id_usuario type titulo categoria modalidad resumen fecha creadorNombre } }`;
+  const data = await gql(q);
+  return data?.voluntariadosPublicos || [];
 }
 
 /**

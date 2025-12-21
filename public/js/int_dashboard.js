@@ -1,6 +1,6 @@
 // public/js/int_dashboard.js
 
-import { inicializarDatos, listarVoluntariadosFeed, getActiveUser, getCategorias, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion } from "./almacenaje.js";
+import { inicializarDatos, listarVoluntariadosFeed, listarVoluntariadosPublicos, getActiveUser, getCategorias, getCategoriasPublicas, listarSeleccionados, guardarSeleccionados, borrarSeleccionados, getSeleccion } from "./almacenaje.js";
 
 // Estado del dashboard
 const STATE = {
@@ -11,6 +11,7 @@ const STATE = {
   perPage: 6,
   voluntariados: [],
   seleccionados: [],
+  isGuest: true,
 };
 
 // Atajos simples
@@ -59,7 +60,7 @@ function categoryClass(cat) {
 
 // Dibuja la estructura base (AHORA ASYNC para poder pedir categorías al backend)
 async function renderLayout(container) {
-  const categorias = await getCategorias();
+  const categorias = STATE.isGuest ? await getCategoriasPublicas() : await getCategorias();
   const filtroSeleccion = getSeleccion();
 
   container.innerHTML = `
@@ -124,8 +125,10 @@ function cardHTML(v) {
 
   const autor = v.creadorNombre || v.autor || v.creadoPor || "Anónimo";
 
+  const draggable = STATE.isGuest ? "false" : "true";
+
   return `
-    <div class="col" draggable="true" data-id="${v.id}">
+    <div class="col" draggable="${draggable}" data-id="${v.id}">
       <div class="card card-ld ${catCls} h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between small mb-1">
@@ -195,11 +198,14 @@ function draw() {
   const pager = $("#pager");
 
   let listaBase;
-
-  if (STATE.filtroSeleccion !== "Todos") {
-    listaBase = STATE.seleccionados.map((idVol) => STATE.voluntariados.find((v) => v.id === idVol)).filter((v) => v);
+  if (STATE.isGuest) {
+    listaBase = STATE.voluntariados;
   } else {
-    listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
+    if (STATE.filtroSeleccion !== "Todos") {
+      listaBase = STATE.seleccionados.map((idVol) => STATE.voluntariados.find((v) => v.id === idVol)).filter((v) => v);
+    } else {
+      listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
+    }
   }
 
   const filtered = applyFilters(listaBase || []);
@@ -231,6 +237,11 @@ function renderSeleccionados() {
   const dropZoneSection = $("#drop-zone-section");
   const dropZone = $("#drop-zone");
   const placeholder = $("#drop-zone-placeholder");
+
+  if (STATE.isGuest) {
+    if (dropZoneSection) dropZoneSection.style.display = "none";
+    return;
+  }
 
   if (STATE.filtroSeleccion !== "Todos") {
     dropZoneSection.style.display = "none";
@@ -286,16 +297,28 @@ async function initDashboard() {
   const active = await getActiveUser();
   setNavbarUser(active?.nombre);
 
+  STATE.isGuest = !active;
+
+  // Si es invitado, forzamos filtros compatibles
+  if (STATE.isGuest) {
+    STATE.filtroSeleccion = "Todos";
+    STATE.seleccionados = [];
+  }
+
   // Dibuja la estructura del dashboard
   const app = $("#app");
   await renderLayout(app);
 
-  // DASHBOARD = feed global
-  STATE.voluntariados = await listarVoluntariadosFeed();
+  // DASHBOARD
+  // - invitado: voluntariadosPublicos
+  // - logueado: feed global
+  STATE.voluntariados = STATE.isGuest ? await listarVoluntariadosPublicos() : await listarVoluntariadosFeed();
 
-  // Seleccionados (relación usuario-voluntariado)
-  const seleccionadosDocs = await listarSeleccionados();
-  STATE.seleccionados = (seleccionadosDocs || []).map((s) => s.id_voluntariado);
+  // Seleccionados SOLO si está logueado
+  if (!STATE.isGuest) {
+    const seleccionadosDocs = await listarSeleccionados();
+    STATE.seleccionados = (seleccionadosDocs || []).map((s) => s.id_voluntariado);
+  }
 
   // Listeners de búsqueda y pestañas
   $("#q").addEventListener("input", (e) => {
@@ -312,7 +335,9 @@ async function initDashboard() {
     draw();
   });
 
+  // Invitado: no permitir cambiar a "Seleccionados" (si algún día apareciera)
   $("#filtro-seleccion").addEventListener("click", (e) => {
+    if (STATE.isGuest) return;
     const btn = e.target.closest("button[data-cat]");
     if (!btn) return;
     STATE.filtroSeleccion = btn.dataset.cat;
@@ -322,7 +347,7 @@ async function initDashboard() {
   });
 
   // Drag & Drop
-  addDragAndDropListeners();
+  if (!STATE.isGuest) addDragAndDropListeners();
 
   draw();
   renderSeleccionados();

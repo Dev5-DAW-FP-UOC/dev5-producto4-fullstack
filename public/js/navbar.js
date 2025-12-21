@@ -1,62 +1,66 @@
-// public/js/navbar.js
+// public/js/nav.js
 import { getActiveUser, logoutUsuario } from "./almacenaje.js";
 
-const $ = (s, ctx = document) => ctx.querySelector(s);
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+
+function show(el, visible) {
+  if (!el) return;
+  el.classList.toggle("d-none", !visible);
+}
 
 function setBadge(name) {
   const badge = $("#userBadge");
   if (badge) badge.textContent = name || "-no login-";
 }
 
-function setLinkLoginToLogout(isLogged) {
-  const link = document.querySelector('a[href="./login.html"], a[href="/login.html"], a[href="login.html"]');
-  if (!link) return;
+export async function initNav() {
+  const user = await getActiveUser(); // <- usa me() (sesión servidor)
 
-  if (!isLogged) {
-    link.textContent = "Login";
-    link.href = "./login.html";
-    link.dataset.action = "";
+  const navDashboard = $("#navDashboard");
+  const navVol = $("#navVoluntariados");
+  const navUsers = $("#navUsuarios");
+  const navLogin = $("#navLogin");
+  const navLogoutItem = $("#navLogoutItem");
+  const navLogout = $("#navLogout");
+
+  // Dashboard siempre visible
+  show(navDashboard?.closest("li") || navDashboard, true);
+
+  if (!user) {
+    // NO LOGEADO -> solo Dashboard + Login
+    setBadge(null);
+    show(navVol?.closest("li") || navVol, false);
+    show(navUsers?.closest("li") || navUsers, false);
+    show(navLogin?.closest("li") || navLogin, true);
+    show(navLogoutItem, false);
     return;
   }
 
-  // Logged -> convertir en Logout
-  link.textContent = "Logout";
-  link.href = "#";
-  link.dataset.action = "logout";
-}
+  // LOGEADO
+  setBadge(user.nombre);
 
-function setUsuariosVisible(isAdmin) {
-  // link usuarios (si existe)
-  const usuariosLink = document.querySelector('a[href="./usuarios.html"], a[href="/usuarios.html"], a[href="usuarios.html"]');
-  if (!usuariosLink) return;
+  show(navLogin?.closest("li") || navLogin, false);
+  show(navLogoutItem, true);
 
-  // Ocultamos el <li> si lo encontramos, si no, ocultamos el link
-  const li = usuariosLink.closest("li");
-  if (li) li.style.display = isAdmin ? "" : "none";
-  else usuariosLink.style.display = isAdmin ? "" : "none";
-}
+  if (user.rol === "admin") {
+    // ADMIN -> todo visible
+    show(navVol?.closest("li") || navVol, true);
+    show(navUsers?.closest("li") || navUsers, true);
+  } else {
+    // USER -> como ahora (normalmente: Dashboard + Voluntariados, NO Usuarios)
+    show(navVol?.closest("li") || navVol, true);
+    show(navUsers?.closest("li") || navUsers, false);
+  }
 
-async function wireLogout() {
-  document.addEventListener("click", async (e) => {
-    const a = e.target.closest('a[data-action="logout"]');
-    if (!a) return;
-
+  // Logout
+  navLogout?.addEventListener("click", async (e) => {
     e.preventDefault();
-    try {
-      await logoutUsuario();
-    } catch (err) {
-      console.warn("[navbar] logout error:", err);
-    }
-    window.location.href = "./login.html";
+    await logoutUsuario();
+    location.href = "./login.html";
   });
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-  const active = await getActiveUser();
-
-  setBadge(active?.nombre);
-  setUsuariosVisible(active?.rol === "admin");
-  setLinkLoginToLogout(!!active);
-
-  await wireLogout();
+// Auto-init
+document.addEventListener("DOMContentLoaded", () => {
+  initNav();
 });
