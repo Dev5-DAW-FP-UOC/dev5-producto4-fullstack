@@ -5,20 +5,19 @@ import { GraphQLBoolean, GraphQLInt, GraphQLList, GraphQLNonNull, GraphQLObjectT
 import {
   // Usuarios
   altaUsuario,
-  borrarUsuario,
+  listarUsuarios,
   buscarUsuarioPorEmail,
   buscarUsuarioPorId,
-  listarUsuarios,
-  loginUsuario,
   modificarUsuario,
+  borrarUsuario,
+  loginUsuario,
 
   // Voluntariados
   altaVoluntariado,
-  borrarVoluntariado,
   listarVoluntariados,
   modificarVoluntariado,
+  borrarVoluntariado,
   voluntariadosPorUsuario,
-  buscarVoluntariadoPorId,
 
   // Categorias
   getCategorias,
@@ -48,13 +47,6 @@ function requireAdmin(ctx) {
   const u = requireAuth(ctx);
   if (!isAdmin(u)) throw new Error("Acceso denegado: requiere rol admin");
   return u;
-}
-
-function emitVolChanged(ctx, ownerId, payload) {
-  // admins siempre
-  ctx.io?.to("admins").emit("voluntariado:changed", payload);
-  // dueño (si existe)
-  if (ownerId != null) ctx.io?.to(`user:${ownerId}`).emit("voluntariado:changed", payload);
 }
 
 /* =====================================
@@ -103,6 +95,7 @@ const SeleccionadoType = new GraphQLObjectType({
 const RootQuery = new GraphQLObjectType({
   name: "Query",
   fields: {
+    // ----- USUARIOS -----
     usuarios: {
       type: new GraphQLList(UsuarioType),
       resolve: (_p, _a, ctx) => {
@@ -131,12 +124,13 @@ const RootQuery = new GraphQLObjectType({
       },
     },
 
+    // ----- VOLUNTARIADOS -----
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_p, _a, ctx) => {
-        const u = requireAuth(ctx);
-        if (isAdmin(u)) return listarVoluntariados();
-        return voluntariadosPorUsuario(u.id);
+        // ✅ Dashboard: TODOS los voluntariados para cualquier usuario autenticado
+        requireAuth(ctx);
+        return listarVoluntariados();
       },
     },
 
@@ -150,11 +144,13 @@ const RootQuery = new GraphQLObjectType({
       },
     },
 
+    // ----- CATEGORÍAS -----
     categorias: {
       type: new GraphQLList(GraphQLString),
       resolve: () => getCategorias(),
     },
 
+    // ----- SELECCIONADOS -----
     seleccionados: {
       type: new GraphQLList(SeleccionadoType),
       resolve: async (_p, _a, ctx) => {
@@ -174,6 +170,7 @@ const RootQuery = new GraphQLObjectType({
       },
     },
 
+    // ----- SESIÓN -----
     me: {
       type: UsuarioType,
       resolve: async (_p, _a, ctx) => {
@@ -192,6 +189,7 @@ const RootQuery = new GraphQLObjectType({
 const RootMutation = new GraphQLObjectType({
   name: "Mutation",
   fields: {
+    // ----- USUARIOS -----
     crearUsuario: {
       type: UsuarioType,
       args: {
@@ -231,6 +229,7 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
+    // ----- LOGIN -----
     login: {
       type: UsuarioType,
       args: {
@@ -251,6 +250,7 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
+    // ----- LOGOUT -----
     logout: {
       type: GraphQLBoolean,
       resolve: async (_p, _a, ctx) => {
@@ -272,7 +272,6 @@ const RootMutation = new GraphQLObjectType({
     },
 
     // ----- VOLUNTARIADOS -----
-
     crearVoluntariado: {
       type: VoluntariadoType,
       args: {
@@ -293,7 +292,13 @@ const RootMutation = new GraphQLObjectType({
           id_usuario: u.id,
         });
 
-        emitVolChanged(ctx, u.id, { action: "created", id: created.id, ownerId: u.id });
+        // ✅ Broadcast: todos los dashboards (otros usuarios/navegadores incluidos)
+        ctx.io?.emit("voluntariado:changed", {
+          action: "created",
+          id: created.id,
+          byUserId: u.id,
+        });
+
         return created;
       },
     },
@@ -312,9 +317,6 @@ const RootMutation = new GraphQLObjectType({
       resolve: async (_p, { id, ...datosActualizados }, ctx) => {
         const u = requireAuth(ctx);
 
-        const before = await buscarVoluntariadoPorId(id);
-        if (!before) throw new Error("Voluntariado no encontrado");
-
         if (!isAdmin(u)) {
           const misVol = await voluntariadosPorUsuario(u.id);
           if (!misVol.some((v) => v.id === id)) throw new Error("Acceso denegado");
@@ -322,7 +324,15 @@ const RootMutation = new GraphQLObjectType({
         }
 
         const ok = await modificarVoluntariado(id, datosActualizados);
-        if (ok) emitVolChanged(ctx, before.id_usuario, { action: "updated", id, ownerId: before.id_usuario });
+
+        if (ok) {
+          ctx.io?.emit("voluntariado:changed", {
+            action: "updated",
+            id,
+            byUserId: u.id,
+          });
+        }
+
         return ok;
       },
     },
@@ -333,22 +343,26 @@ const RootMutation = new GraphQLObjectType({
       resolve: async (_p, { id }, ctx) => {
         const u = requireAuth(ctx);
 
-        const before = await buscarVoluntariadoPorId(id);
-        if (!before) throw new Error("Voluntariado no encontrado");
-
         if (!isAdmin(u)) {
           const misVol = await voluntariadosPorUsuario(u.id);
           if (!misVol.some((v) => v.id === id)) throw new Error("Acceso denegado");
         }
 
         const ok = await borrarVoluntariado(id);
-        if (ok) emitVolChanged(ctx, before.id_usuario, { action: "deleted", id, ownerId: before.id_usuario });
+
+        if (ok) {
+          ctx.io?.emit("voluntariado:changed", {
+            action: "deleted",
+            id,
+            byUserId: u.id,
+          });
+        }
+
         return ok;
       },
     },
 
     // ----- SELECCIONADOS -----
-
     crearSeleccionado: {
       type: SeleccionadoType,
       args: {
@@ -360,6 +374,7 @@ const RootMutation = new GraphQLObjectType({
 
         const sel = await guardarSeleccionado(u.id, id_voluntariado);
 
+        // (correcto: solo afecta a ese usuario + admins)
         ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
         ctx.io?.to(`user:${u.id}`).emit("seleccionado:changed", { userId: u.id });
 

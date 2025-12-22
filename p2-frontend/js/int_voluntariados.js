@@ -1,11 +1,7 @@
 // ./js/int_voluntariados.js
-// Voluntariados (GraphQL) + sesión (cookie) + Canvas + Realtime (Socket.IO)
+// Voluntariados (GraphQL) + sesión (cookie) + Canvas
 
 const API_URL = "http://localhost:4000/graphql";
-const SOCKET_URL = "http://localhost:4000";
-let socket = null;
-let refreshTimer = null;
-
 const $ = (s, ctx = document) => ctx.querySelector(s);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -42,10 +38,34 @@ async function getMe() {
   return data?.me ?? null;
 }
 
-async function listarVoluntariadosAPI() {
+async function listarVoluntariadosAPI(me) {
+  // ✅ GESTIÓN:
+  // - usuario normal -> solo ve sus voluntariados
+  // - admin -> ve todos (igual que en dashboard)
+
+  if (me?.rol === "admin") {
+    const q = `
+      query {
+        voluntariados {
+          id
+          type
+          titulo
+          id_usuario
+          nombre_usuario
+          modalidad
+          categoria
+          resumen
+          fecha
+        }
+      }
+    `;
+    const data = await fetchGraphQL(q);
+    return data?.voluntariados ?? [];
+  }
+
   const q = `
-    query {
-      voluntariados {
+    query ($id_usuario:Int!) {
+      voluntariadosPorUsuario(id_usuario:$id_usuario) {
         id
         type
         titulo
@@ -58,8 +78,9 @@ async function listarVoluntariadosAPI() {
       }
     }
   `;
-  const data = await fetchGraphQL(q);
-  return data?.voluntariados ?? [];
+
+  const data = await fetchGraphQL(q, { id_usuario: Number(me.id) });
+  return data?.voluntariadosPorUsuario ?? [];
 }
 
 async function crearVoluntariadoAPI(args) {
@@ -146,7 +167,7 @@ function itemHTML(v) {
 const state = { me: null, vols: [] };
 
 async function loadFromAPI() {
-  state.vols = (await listarVoluntariadosAPI()).map((v) => ({
+  state.vols = (await listarVoluntariadosAPI(state.me)).map((v) => ({
     ...v,
     categoria: normCat(v.categoria),
     type: String(v.type || "oferta").toLowerCase(),
@@ -167,41 +188,6 @@ function drawList() {
   list.innerHTML = state.vols.map(itemHTML).join("");
   $("#countVol")?.replaceChildren(document.createTextNode(`${state.vols.length} ítem(s)`));
   drawCanvasChart();
-}
-
-function debounceReload() {
-  clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(async () => {
-    try {
-      await loadFromAPI();
-      drawList();
-    } catch (e) {
-      console.error(e);
-    }
-  }, 120);
-}
-
-// ---------------- Realtime ----------------
-function initRealtimeSocket(me) {
-  if (!window.io) {
-    console.warn("[socket] Falta cargar /socket.io/socket.io.js en el HTML.");
-    return;
-  }
-
-  socket = window.io(SOCKET_URL, {
-    transports: ["websocket", "polling"],
-    withCredentials: true,
-  });
-
-  socket.on("connect", () => {
-    console.log("[socket] conectado:", socket.id);
-    socket.emit("join", { userId: me.id, rol: me.rol });
-  });
-
-  socket.on("voluntariado:changed", (payload) => {
-    console.log("[socket] voluntariado:changed", payload);
-    debounceReload();
-  });
 }
 
 async function handleSubmit(e) {
@@ -353,9 +339,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     window.location.href = "./login.html";
     return;
   }
-
-  // ✅ socket realtime
-  initRealtimeSocket(state.me);
 
   setNavbarUser(state.me.nombre);
 

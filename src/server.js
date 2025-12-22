@@ -29,22 +29,19 @@ const __dirname = path.dirname(__filename);
 // ✅ Carpeta del frontend estático
 const FRONTEND_DIR = path.join(__dirname, "../p2-frontend");
 
-// =============================
-// CORS helper (acepta cualquier localhost:*)
-// =============================
-const isLocalhost = (origin) => {
-  if (!origin) return true; // Postman/cURL
-  return /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+// ✅ Permitir cualquier origen localhost/127.0.0.1 (cualquier puerto) en desarrollo
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true; // Postman/cURL o mismo origen
+  return /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
 };
 
 // =============================
 // Socket.IO
 // =============================
 const io = new SocketIOServer(server, {
+  // ✅ Permite front servido desde 4000 o desde Live Server (cualquier puerto) en local
   cors: {
-    origin(origin, cb) {
-      cb(null, isLocalhost(origin));
-    },
+    origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
     credentials: true,
   },
 });
@@ -52,14 +49,14 @@ const io = new SocketIOServer(server, {
 io.on("connection", (socket) => {
   console.log("[socket] cliente conectado:", socket.id);
 
+  // join por rol/usuario
   socket.on("join", ({ userId, rol }) => {
-    try {
-      if (rol === "admin") socket.join("admins");
-      if (userId) socket.join(`user:${userId}`);
-      console.log("[socket] join:", { userId, rol });
-    } catch (e) {
-      console.warn("[socket] join error:", e);
-    }
+    // ✅ Room común: cualquier dashboard (da igual usuario/navegador)
+    socket.join("dashboards");
+
+    // Rooms opcionales por rol/usuario
+    if (rol === "admin") socket.join("admins");
+    if (userId) socket.join(`user:${userId}`);
   });
 
   socket.on("disconnect", () => {
@@ -72,16 +69,16 @@ io.on("connection", (socket) => {
 // =============================
 app.use(express.json());
 
+// ✅ CORS Express (GraphQL / fetch)
 app.use(
   cors({
     origin(origin, cb) {
-      cb(null, isLocalhost(origin));
+      return cb(null, isAllowedOrigin(origin));
     },
     credentials: true,
   })
 );
 
-// (opcional) preflight
 app.options(/.*/, cors());
 
 // ✅ Sesiones
@@ -117,8 +114,8 @@ app.all(
     schema,
     context: (req, res) => ({
       req: req.raw, // ✅ aquí vive req.session para graphql-http
-      res,
-      io, // ✅ inyectamos socket server en context
+      res, // ✅ Express res (tiene clearCookie)
+      io,
     }),
   })
 );
