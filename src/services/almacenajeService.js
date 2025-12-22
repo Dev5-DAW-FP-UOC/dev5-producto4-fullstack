@@ -108,13 +108,6 @@ export async function listarVoluntariados() {
   return attachNombreUsuario(vols);
 }
 
-export async function buscarVoluntariadoPorId(id) {
-  const v = await Voluntariado.findOne({ id }).lean();
-  if (!v) return null;
-  const [enriched] = await attachNombreUsuario([v]);
-  return enriched;
-}
-
 export async function borrarVoluntariado(id) {
   const res = await Voluntariado.deleteOne({ id });
   return res.deletedCount === 1;
@@ -123,39 +116,6 @@ export async function borrarVoluntariado(id) {
 export async function voluntariadosPorUsuario(id_usuario) {
   const vols = await Voluntariado.find({ id_usuario }).lean();
   return attachNombreUsuario(vols);
-}
-
-/* ========================================================================== */
-/*  CATEGORÍAS                                                                */
-/* ========================================================================== */
-
-export async function getCategorias() {
-  const docs = await Categoria.find().sort({ id: 1 }).lean();
-  return docs.map((c) => c.nombre);
-}
-
-/* ========================================================================== */
-/*  SELECCIONADOS (relación usuario-voluntariado)                             */
-/* ========================================================================== */
-
-export async function guardarSeleccionado(id_usuario, id_voluntariado) {
-  const usuarioExiste = await Usuario.findOne({ id: id_usuario }).lean();
-  if (!usuarioExiste) throw new Error("Usuario no encontrado para id_usuario=" + id_usuario);
-
-  const voluntariadoExiste = await Voluntariado.findOne({
-    id: id_voluntariado,
-  }).lean();
-  if (!voluntariadoExiste) throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
-
-  const yaExiste = await Seleccionado.findOne({
-    id_usuario,
-    id_voluntariado,
-  }).lean();
-  if (yaExiste) throw new Error("Este voluntariado ya está seleccionado por este usuario.");
-
-  const id = await getSiguienteNumeroId(Seleccionado);
-  const doc = await Seleccionado.create({ id, id_usuario, id_voluntariado });
-  return doc.toObject();
 }
 
 // Enriquecer voluntariados con el nombre del usuario
@@ -171,12 +131,52 @@ async function attachNombreUsuario(vols) {
   }));
 }
 
+/* ========================================================================== */
+/*  CATEGORÍAS                                                                */
+/* ========================================================================== */
+
+export async function getCategorias() {
+  const docs = await Categoria.find().sort({ id: 1 }).lean();
+  return docs.map((c) => c.nombre);
+}
+
+/* ========================================================================== */
+/*  SELECCIONADOS (GLOBAL EXCLUSIVO)                                          */
+/* ========================================================================== */
+
 export async function listarSeleccionados() {
   return Seleccionado.find().lean();
 }
 
+export async function buscarSeleccionadoPorId(id) {
+  return Seleccionado.findOne({ id }).lean();
+}
+
 export async function seleccionadosPorUsuario(id_usuario) {
   return Seleccionado.find({ id_usuario }).lean();
+}
+
+export async function guardarSeleccionado(id_usuario, id_voluntariado) {
+  const usuarioExiste = await Usuario.findOne({ id: id_usuario }).lean();
+  if (!usuarioExiste) throw new Error("Usuario no encontrado para id_usuario=" + id_usuario);
+
+  const voluntariadoExiste = await Voluntariado.findOne({
+    id: id_voluntariado,
+  }).lean();
+  if (!voluntariadoExiste) throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
+
+  // ✅ EXCLUSIVIDAD GLOBAL: un voluntariado solo puede estar seleccionado por 1 usuario
+  const ocupado = await Seleccionado.findOne({ id_voluntariado }).lean();
+  if (ocupado) {
+    if (ocupado.id_usuario === id_usuario) {
+      throw new Error("Este voluntariado ya lo tienes seleccionado.");
+    }
+    throw new Error("Este voluntariado ya está seleccionado por otro usuario.");
+  }
+
+  const id = await getSiguienteNumeroId(Seleccionado);
+  const doc = await Seleccionado.create({ id, id_usuario, id_voluntariado });
+  return doc.toObject();
 }
 
 export async function borrarSeleccionado(id) {

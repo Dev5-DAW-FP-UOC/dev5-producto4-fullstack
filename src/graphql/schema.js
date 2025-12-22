@@ -27,6 +27,7 @@ import {
   listarSeleccionados,
   seleccionadosPorUsuario,
   borrarSeleccionado,
+  buscarSeleccionadoPorId,
 } from "../services/almacenajeService.js";
 
 function getSessionUser(ctx) {
@@ -128,7 +129,7 @@ const RootQuery = new GraphQLObjectType({
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_p, _a, ctx) => {
-        // ✅ Dashboard: TODOS los voluntariados para cualquier usuario autenticado
+        // Dashboard: todos ven todos
         requireAuth(ctx);
         return listarVoluntariados();
       },
@@ -167,6 +168,15 @@ const RootQuery = new GraphQLObjectType({
         const u = requireAuth(ctx);
         if (!isAdmin(u) && u.id !== id_usuario) throw new Error("Acceso denegado");
         return seleccionadosPorUsuario(id_usuario);
+      },
+    },
+
+    // ✅ NUEVO: selecciones globales (para bloquear voluntariados en otros dashboards)
+    seleccionadosGlobal: {
+      type: new GraphQLList(SeleccionadoType),
+      resolve: async (_p, _a, ctx) => {
+        requireAuth(ctx);
+        return listarSeleccionados();
       },
     },
 
@@ -250,7 +260,6 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
-    // ----- LOGOUT -----
     logout: {
       type: GraphQLBoolean,
       resolve: async (_p, _a, ctx) => {
@@ -292,13 +301,7 @@ const RootMutation = new GraphQLObjectType({
           id_usuario: u.id,
         });
 
-        // ✅ Broadcast: todos los dashboards (otros usuarios/navegadores incluidos)
-        ctx.io?.emit("voluntariado:changed", {
-          action: "created",
-          id: created.id,
-          byUserId: u.id,
-        });
-
+        ctx.io?.emit("voluntariado:changed", { action: "created", id: created.id, byUserId: u.id });
         return created;
       },
     },
@@ -324,15 +327,7 @@ const RootMutation = new GraphQLObjectType({
         }
 
         const ok = await modificarVoluntariado(id, datosActualizados);
-
-        if (ok) {
-          ctx.io?.emit("voluntariado:changed", {
-            action: "updated",
-            id,
-            byUserId: u.id,
-          });
-        }
-
+        if (ok) ctx.io?.emit("voluntariado:changed", { action: "updated", id, byUserId: u.id });
         return ok;
       },
     },
@@ -349,24 +344,16 @@ const RootMutation = new GraphQLObjectType({
         }
 
         const ok = await borrarVoluntariado(id);
-
-        if (ok) {
-          ctx.io?.emit("voluntariado:changed", {
-            action: "deleted",
-            id,
-            byUserId: u.id,
-          });
-        }
-
+        if (ok) ctx.io?.emit("voluntariado:changed", { action: "deleted", id, byUserId: u.id });
         return ok;
       },
     },
 
-    // ----- SELECCIONADOS -----
+    // ----- SELECCIONADOS (GLOBAL EXCLUSIVO) -----
     crearSeleccionado: {
       type: SeleccionadoType,
       args: {
-        id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
+        id_usuario: { type: new GraphQLNonNull(GraphQLInt) }, // compatibilidad
         id_voluntariado: { type: new GraphQLNonNull(GraphQLInt) },
       },
       resolve: async (_p, { id_voluntariado }, ctx) => {
@@ -374,9 +361,13 @@ const RootMutation = new GraphQLObjectType({
 
         const sel = await guardarSeleccionado(u.id, id_voluntariado);
 
-        // (correcto: solo afecta a ese usuario + admins)
-        ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
-        ctx.io?.to(`user:${u.id}`).emit("seleccionado:changed", { userId: u.id });
+        // ✅ broadcast para todos (otros usuarios/navegadores incluidos)
+        ctx.io?.emit("seleccionado:changed", {
+          action: "created",
+          id: sel.id,
+          id_usuario: sel.id_usuario,
+          id_voluntariado: sel.id_voluntariado,
+        });
 
         return sel;
       },
@@ -388,15 +379,24 @@ const RootMutation = new GraphQLObjectType({
       resolve: async (_p, { id }, ctx) => {
         const u = requireAuth(ctx);
 
-        if (!isAdmin(u)) {
-          const misSel = await seleccionadosPorUsuario(u.id);
-          if (!misSel.some((s) => s.id === id)) throw new Error("Acceso denegado");
+        // Necesitamos el doc para emitir id_voluntariado al soltarlo
+        const doc = await buscarSeleccionadoPorId(id);
+        if (!doc) return false;
+
+        if (!isAdmin(u) && doc.id_usuario !== u.id) {
+          throw new Error("Acceso denegado");
         }
 
         const ok = await borrarSeleccionado(id);
 
-        ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
-        ctx.io?.to(`user:${u.id}`).emit("seleccionado:changed", { userId: u.id });
+        if (ok) {
+          ctx.io?.emit("seleccionado:changed", {
+            action: "deleted",
+            id,
+            id_usuario: doc.id_usuario,
+            id_voluntariado: doc.id_voluntariado,
+          });
+        }
 
         return ok;
       },

@@ -4,7 +4,7 @@ import { gqlFetch } from "./api/graphqlClient.js";
 console.log("[int_dashboard] cargado");
 
 // ===== Socket config =====
-const SOCKET_URL = "http://localhost:4000"; // funciona tanto si usas Live Server como si sirves desde 4000
+const SOCKET_URL = "http://localhost:4000";
 let socket = null;
 let refreshVolTimer = null;
 let refreshSelTimer = null;
@@ -17,9 +17,17 @@ const STATE = {
   page: 1,
   perPage: 6,
   voluntariados: [],
-  seleccionados: [],
+
+  // ✅ sesión actual
   me: null,
-  _selMap: new Map(),
+
+  // ✅ mis seleccionados
+  seleccionados: [], // array de id_voluntariado (míos)
+  _mineSelMap: new Map(), // id_voluntariado -> id_seleccion
+  _mineSet: new Set(),
+
+  // ✅ seleccionados globales por otros
+  _takenByOthersSet: new Set(), // id_voluntariado ocupados por otros
 };
 
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
@@ -51,26 +59,28 @@ async function apiVoluntariados() {
   return data.voluntariados || [];
 }
 
-async function apiSeleccionadosPorUsuario(id_usuario) {
-  const data = await gqlFetch(
-    `query ($id_usuario:Int!) {
-      seleccionadosPorUsuario(id_usuario:$id_usuario){
-        id id_usuario id_voluntariado
+async function apiSeleccionadosGlobal() {
+  const data = await gqlFetch(`
+    query {
+      seleccionadosGlobal {
+        id
+        id_usuario
+        id_voluntariado
       }
-    }`,
-    { id_usuario }
-  );
-  return data.seleccionadosPorUsuario || [];
+    }
+  `);
+  return data.seleccionadosGlobal || [];
 }
 
-async function apiCrearSeleccionado(id_usuario, id_voluntariado) {
+async function apiCrearSeleccionado(id_voluntariado) {
+  // id_usuario lo pasamos por compatibilidad, pero el backend usa sesión
   const data = await gqlFetch(
     `mutation ($id_usuario:Int!, $id_voluntariado:Int!) {
       crearSeleccionado(id_usuario:$id_usuario, id_voluntariado:$id_voluntariado){
         id id_usuario id_voluntariado
       }
     }`,
-    { id_usuario, id_voluntariado }
+    { id_usuario: STATE.me.id, id_voluntariado }
   );
   return data.crearSeleccionado;
 }
@@ -87,10 +97,18 @@ async function refreshVoluntariados() {
   renderSeleccionados();
 }
 
-async function refreshSeleccionados() {
-  const selDocs = await apiSeleccionadosPorUsuario(STATE.me.id);
-  STATE.seleccionados = selDocs.map((s) => s.id_voluntariado);
-  STATE._selMap = new Map(selDocs.map((s) => [s.id_voluntariado, s.id]));
+async function refreshSeleccionadosGlobal() {
+  const docs = await apiSeleccionadosGlobal();
+
+  // Mis seleccionados (para drop-zone y borrar)
+  const mine = docs.filter((d) => d.id_usuario === STATE.me.id);
+  STATE.seleccionados = mine.map((d) => d.id_voluntariado);
+  STATE._mineSelMap = new Map(mine.map((d) => [d.id_voluntariado, d.id]));
+  STATE._mineSet = new Set(STATE.seleccionados);
+
+  // Ocupados por otros (para bloquear/ocultar en el grid)
+  STATE._takenByOthersSet = new Set(docs.filter((d) => d.id_usuario !== STATE.me.id).map((d) => d.id_voluntariado));
+
   draw();
   renderSeleccionados();
 }
@@ -102,13 +120,13 @@ function debounceRefreshVol() {
 
 function debounceRefreshSel() {
   clearTimeout(refreshSelTimer);
-  refreshSelTimer = setTimeout(() => refreshSeleccionados().catch(console.error), 120);
+  refreshSelTimer = setTimeout(() => refreshSeleccionadosGlobal().catch(console.error), 120);
 }
 
 // ---------------- Socket init ----------------
 function initRealtimeSocket(me) {
   if (!window.io) {
-    console.warn("[socket] Falta cargar /socket.io/socket.io.js en el HTML (ver instrucciones al final).");
+    console.warn("[socket] Falta cargar /socket.io/socket.io.js en el HTML.");
     return;
   }
 
@@ -131,8 +149,8 @@ function initRealtimeSocket(me) {
 
   socket.on("seleccionado:changed", (payload) => {
     console.log("[socket] seleccionado:changed", payload);
-    // Solo refrescamos si afecta a mi usuario (o soy admin y quiero verlo todo)
-    if (me.rol === "admin" || payload?.userId === me.id) debounceRefreshSel();
+    // ✅ global: siempre refrescar porque afecta a la “ocupación” de voluntariados
+    debounceRefreshSel();
   });
 }
 
@@ -328,9 +346,11 @@ function draw() {
   let listaBase;
 
   if (STATE.filtroSeleccion !== "Todos") {
+    // Solo mis seleccionados
     listaBase = STATE.seleccionados.map((id) => STATE.voluntariados.find((v) => v.id === id)).filter((v) => v);
   } else {
-    listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
+    // ✅ “Seleccionables” = no míos y no ocupados por otros
+    listaBase = STATE.voluntariados.filter((v) => !STATE._mineSet.has(v.id) && !STATE._takenByOthersSet.has(v.id));
   }
 
   const filtered = applyFilters(listaBase || []);
@@ -425,7 +445,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   STATE.me = me;
 
-  // ✅ socket realtime
+  // ✅ realtime
   initRealtimeSocket(me);
 
   setNavbarUser(me.nombre);
@@ -441,10 +461,7 @@ async function initDashboard() {
   await renderLayout(app, categorias);
 
   STATE.voluntariados = await apiVoluntariados();
-
-  const selDocs = await apiSeleccionadosPorUsuario(STATE.me.id);
-  STATE.seleccionados = selDocs.map((s) => s.id_voluntariado);
-  STATE._selMap = new Map(selDocs.map((s) => [s.id_voluntariado, s.id]));
+  await refreshSeleccionadosGlobal(); // ✅ carga global + mine + occupied
 
   $("#q").addEventListener("input", (e) => {
     STATE.query = e.target.value.trim().toLowerCase();
@@ -495,20 +512,18 @@ function addDragAndDropListeners() {
     if (!quitBtn) return;
 
     const idVol = Number(quitBtn.dataset.idQuitar);
-    const seleccionId = STATE._selMap.get(idVol);
+    const selId = STATE._mineSelMap.get(idVol);
 
-    if (seleccionId) {
+    if (selId) {
       try {
-        await apiBorrarSeleccionado(seleccionId);
-        STATE._selMap.delete(idVol);
+        await apiBorrarSeleccionado(selId);
       } catch (err) {
         console.error("[dashboard] error eliminando seleccionado en servidor", err);
       }
     }
 
-    STATE.seleccionados = STATE.seleccionados.filter((x) => x !== idVol);
-    draw();
-    renderSeleccionados();
+    // refresco global (por si alguien más también cambió cosas)
+    await refreshSeleccionadosGlobal();
   });
 }
 
@@ -569,18 +584,21 @@ async function handleDrop(e) {
   const source = e.dataTransfer.getData("application/source");
   if (!idVol || source !== "grid") return;
 
-  if (!STATE.seleccionados.includes(idVol)) {
-    STATE.seleccionados.push(idVol);
+  // ✅ si otro usuario ya lo tiene, no permitimos seleccionarlo
+  if (STATE._takenByOthersSet.has(idVol)) {
+    // refresco por si era un estado desincronizado
+    await refreshSeleccionadosGlobal();
+    return;
+  }
 
+  if (!STATE._mineSet.has(idVol)) {
     try {
-      const created = await apiCrearSeleccionado(STATE.me.id, idVol);
-      STATE._selMap.set(idVol, created.id);
+      await apiCrearSeleccionado(idVol);
     } catch (err) {
-      console.error("[dashboard] error creando seleccionado (API)", err);
+      console.error("[dashboard] crearSeleccionado error", err);
+      // si falló porque otro lo cogió antes, refrescamos
     }
-
-    draw();
-    renderSeleccionados();
+    await refreshSeleccionadosGlobal();
   }
 }
 
@@ -592,19 +610,13 @@ async function handleDropToGrid(e) {
   const source = e.dataTransfer.getData("application/source");
   if (!idVol || source !== "dropzone") return;
 
-  if (STATE.seleccionados.includes(idVol)) {
+  if (STATE._mineSet.has(idVol)) {
     try {
-      const seleccionId = STATE._selMap.get(idVol);
-      if (seleccionId) {
-        await apiBorrarSeleccionado(seleccionId);
-        STATE._selMap.delete(idVol);
-      }
+      const selId = STATE._mineSelMap.get(idVol);
+      if (selId) await apiBorrarSeleccionado(selId);
     } catch (err) {
       console.error("[dashboard] error borrando seleccionado (API)", err);
     }
-
-    STATE.seleccionados = STATE.seleccionados.filter((x) => x !== idVol);
-    draw();
-    renderSeleccionados();
+    await refreshSeleccionadosGlobal();
   }
 }
