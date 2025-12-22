@@ -1,340 +1,255 @@
-// js/almacenaje.js
+/**
+ * Módulo de Almacenamiento - Versión FullStack (P4)
+ * Sustituye la persistencia local por llamadas a la API Backend (GraphQL).
+ */
 
-import { datos } from "./datos.js";
+// [CORREGIDO] Usamos 127.0.0.1 para coincidir con Live Server y evitar problemas de cookies
+const GRAPHQL_ENDPOINT = 'http://127.0.0.1:4000/graphql';
 
 /**
- * Inicializa los usuarios en localStorage si no existen todavía y en IndexedDB.
+ * Helper genérico para hacer peticiones a GraphQL
  */
-export async function inicializarDatos() {
-  const usuariosExisten = localStorage.getItem("usuarios");
-  if (!usuariosExisten) {
-    localStorage.setItem("usuarios", JSON.stringify(datos.usuarios));
-    console.log("Usuarios iniciales cargados en localStorage");
-  }
+async function graphqlRequest(query, variables = {}) {
+    try {
+        const response = await fetch(GRAPHQL_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+            },
+            // Envia cookies de sesión (httpOnly) al backend
+            credentials: 'include', 
+            body: JSON.stringify({ query, variables })
+        });
 
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readonly");
-    const store = tx.objectStore("voluntariados");
-    const countRequest = store.count();
-    countRequest.onsuccess = async function () {
-      if (countRequest.result === 0) {
-        // Si está vacío, agregamos los de ejemplo
-        const txAdd = db.transaction("voluntariados", "readwrite");
-        const storeAdd = txAdd.objectStore("voluntariados");
-        for (const v of datos.voluntariados) {
-          storeAdd.add({
-          ...v,
-          creadoPor: v.creadoPor || v.autor || "Anónimo" // ← usa autor si creadoPor no existe
-         });
+        const json = await response.json();
+        
+        if (json.errors) {
+            console.error("❌ Errores GraphQL:", json.errors);
+            throw new Error(json.errors[0].message);
         }
-        txAdd.oncomplete = () => {
-          console.log("Voluntariados inicales cargados en IndexedDB");
-          resolve(true);
-        };
-        txAdd.onerror = reject;
-      } else {
-        resolve(false); // Ya había datos, no se carga nada
-      }
-    };
-    countRequest.onerror = reject;
-  });
-}
 
-// Categorías disponibles para filtros, tabs, etc.
-export function getCategorias() {
-  return datos.categorias || ["Todas"];
-}
-// Seleccion voluntariados propios
-export function getSeleccion(){
-  return datos.seleccion || ["Todos"];
-}
-
-// === CRUD y autenticación para la app de voluntariado ===
-
-// ------ Usuarios (LocalStorage) ------
-
-/**
- * Añade un nuevo usuario al sistema y lo guarda en localStorage.
- * Si ya existe un usuario con el mismo email, no lo añade y retorna false.
- * @param {Object} usuario - Debe tener { nombre, email, contraseña, rol }
- * @returns {boolean} true si fue añadido, false si ya existía ese email
- */
-export function altaUsuario(usuario) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const existeUsuario = usuarios.some((u) => u.email === usuario.email);
-  if (existeUsuario) {
-    return false;
-  }
-  usuarios.push(usuario);
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
-}
-
-/**
- * Devuelve un array con todos los usuarios regsitrados.
- */
-export function listarUsuarios() {
-  const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  return usuarios;
-}
-
-/**
- * Modifica los datos de un usuario existente en localSotrage.
- * Busca el usuario por su email (clave única).
- * @param {string} emailOriginal - El email del usuario (clave única)
- * @param {Object} usuarioActualizado - Objeto con los nuevos datos {nombre, email, contraseña, rol}
- * @returns {boolean} true si se modificó correctamente, false si no existía el usuario
- */
-export function modificarUsuario(emailOriginal, usuarioActualizado) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const indice = usuarios.findIndex((u) => u.email === emailOriginal);
-  if (indice === -1) {
-    return false; // No se encontró el usuario
-  }
-  if (usuarioActualizado.email !== emailOriginal) {
-    const emailUsuarioExiste = usuarios.some((u) => u.email === usuarioActualizado.email);
-    if (emailUsuarioExiste) {
-      return false; // No permite modificar el email a uno que ya existe en otro usuario
+        return json.data;
+    } catch (error) {
+        console.error("❌ Error de red o API:", error);
+        return null;
     }
-  }
-  usuarios[indice] = usuarioActualizado;
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
 }
 
-/**
- * Elimina un usuario del localStorage por su email.
- * @param {string} email - Email del usuario a eliminar
- * @retuns {boolean} true si eliminó el usuario, false si no existía
- */
-export function borrarUsuario(email) {
-  let usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-
-  const indice = usuarios.findIndex((u) => u.email === email);
-  if (indice === -1) {
-    return false; // No existe ese usuario
-  }
-  usuarios.splice(indice, 1);
-  localStorage.setItem("usuarios", JSON.stringify(usuarios));
-  return true;
+// --- Inicialización ---
+export async function init() {
+    console.log("✅ Conectado al Backend GraphQL");
 }
 
-/**
- * Verifica usuario/contraseña y devuelve el usuario si existe.
- * @param {string} email
- * @param {string} password
- * @return {Object|null} El objeto usuario si autenticación OK, null si no concide.
- */
-export function loguearUsuario(email, password) {
-  const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
-  const usuario = usuarios.find((u) => u.email === email && u.password === password);
-  return usuario || null;
+// --- Usuarios / Login ---
+
+export async function loguearUsuario(email, password) {
+    const mutation = `
+        mutation Login($email: String!, $password: String!) {
+            login(email: $email, password: $password) {
+                id
+                nombre
+                email
+                rol
+            }
+        }
+    `;
+    
+    const data = await graphqlRequest(mutation, { email, password });
+    
+    if (data && data.login) {
+        // Guardamos datos básicos en localStorage solo para la UI
+        localStorage.setItem('usuario_ui', JSON.stringify(data.login));
+        return data.login;
+    }
+    return null;
 }
 
-/**
- * Guarda el usuario activo en localStorage.
- * @param {string} usuario
- */
-export function guardarUsuarioActivo(email) {
-  localStorage.setItem("usuarioActivo", email);
-}
-
-/**
- * Recupera el email del usario activo o null si no hay sesión.
- * @returns {string|null}
- */
 export function obtenerUsuarioActivo() {
-  return localStorage.getItem("usuarioActivo");
+    const user = localStorage.getItem('usuario_ui');
+    return user ? JSON.parse(user) : null;
 }
 
-/**
- * Cierra sesión.
- */
-export function logoutUsuario() {
-  localStorage.removeItem("usuarioActivo");
+// [IMPORTANTE] Esta es la función que faltaba
+export async function handleLogout() {
+    const mutation = `mutation { logout }`;
+    await graphqlRequest(mutation);
+    localStorage.removeItem('usuario_ui');
 }
 
-// Devuelve el objeto usuario activo, o null si no hay
-export function getActiveUser() {
-  const email = obtenerUsuarioActivo(); // string o null
-  if (!email) return null;
+// --- Voluntariados ---
 
-  const usuarios = listarUsuarios() || []; // del localStorage / datos
-  return usuarios.find((u) => u.email === email) || null;
+export async function getVoluntariados() {
+    const query = `
+        query {
+            voluntariados {
+                id
+                titulo
+                tipo
+                categoria
+                descripcion
+                email
+                fecha
+            }
+        }
+    `;
+    const data = await graphqlRequest(query);
+    return data ? data.voluntariados : [];
 }
 
-// (Opcional) helper rápido para comprobar si hay login
-export function isLoggedIn() {
-  return !!getActiveUser();
+export async function addVoluntariado(voluntariado) {
+    const mutation = `
+        mutation CrearVoluntariado($titulo: String!, $tipo: String!, $categoria: String!, $descripcion: String!, $email: String!, $fecha: String!) {
+            crearVoluntariado(
+                titulo: $titulo, 
+                tipo: $tipo, 
+                categoria: $categoria, 
+                descripcion: $descripcion, 
+                email: $email, 
+                fecha: $fecha
+            ) {
+                id
+                titulo
+            }
+        }
+    `;
+
+    const variables = {
+        titulo: voluntariado.titulo,
+        tipo: voluntariado.tipo,
+        categoria: voluntariado.categoria,
+        descripcion: voluntariado.descripcion,
+        email: voluntariado.email || "anonimo@volunet.com",
+        fecha: voluntariado.fecha || new Date().toISOString().split('T')[0]
+    };
+
+    const data = await graphqlRequest(mutation, variables);
+    return data ? data.crearVoluntariado : null;
 }
 
-/**
- * ----- Voluntariados (IndexedDB, funciones asíncronas) -----
- */
-
-// Función que se reutiliza en todas las operaciones de voluntariados
-function abrirDB() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open("VoluntariadoDB", 1);
-
-    request.onupgradeneeded = function (event) {
-      const db = event.target.result;
-      if (!db.objectStoreNames.contains("voluntariados")) {
-        db.createObjectStore("voluntariados", { keyPath: "id", autoIncrement: true });
-      }
-
-      //almacenaje de voluntariados seleccionados
-      if(!db.objectStoreNames.contains("seleccionados")) {
-        db.createObjectStore("seleccionados", { keyPath: "id", autoIncrement: true });
-      }
-    };
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(event.target.error);
-    };
-  });
+export async function deleteVoluntariado(id) {
+    const mutation = `
+        mutation Borrar($id: String!) {
+            borrarVoluntariado(id: $id)
+        }
+    `;
+    const data = await graphqlRequest(mutation, { id: String(id) });
+    return data ? data.borrarVoluntariado : false;
 }
 
-/**
- * Añade un nuevo voluntariado a la base de datos IndexedDB (async).
- * @param {Object} voluntariado -El objeto con los campos: titulo, email, fecha, descripción, tipo
- * @returns {Promise<number>} - El id generado para el voluntariado
- */
-export async function altaVoluntariado(voluntariado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readwrite");
-    const store = tx.objectStore("voluntariados");
-    const request = store.add(voluntariado);
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(request.result);
-    };
-  });
+// --- GESTIÓN DE USUARIOS (Solo Admin) ---
+
+export async function getUsuarios() {
+    const query = `
+        query {
+            usuarios {
+                id
+                nombre
+                email
+                rol
+            }
+        }
+    `;
+    const data = await graphqlRequest(query);
+    return data ? data.usuarios : [];
 }
 
-/**
- * Devuelve un array con todos los voluntariados de la base de datos (async).
- * @returns {Promise<Array>}
- */
-export async function listarVoluntariados() {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("voluntariados", "readonly");
-    const store = transaction.objectStore("voluntariados");
-    const request = store.getAll();
-    request.onsuccess = function (event) {
-      resolve(request.result);
+export async function addUsuario(usuario) {
+    const mutation = `
+        mutation CrearUsuario($nombre: String!, $email: String!, $password: String!, $rol: String!) {
+            crearUsuario(nombre: $nombre, email: $email, password: $password, rol: $rol) {
+                id
+                nombre
+                email
+            }
+        }
+    `;
+    const variables = {
+        nombre: usuario.nombre,
+        email: usuario.email,
+        password: usuario.password || "123456", 
+        rol: "user"
     };
-    request.onsuccess = function (event) {
-  // Garantiza que todos los registros tengan creadoPor
-  const vols = request.result.map(v => ({ ...v, creadoPor: v.creadoPor || "Anónimo" }));
-  resolve(vols)
-    };
-  });
+    
+    const data = await graphqlRequest(mutation, variables);
+    return data ? data.crearUsuario : null;
 }
 
-/**
- * Modificar un voluntariado por ID de la base de datos (async).
- * @param {number} id - ID del voluntariado a modificar.
- * @param {Object} voluntariadoActualizado - Nuevo objeto voluntariado.
- * @returns {Promise<boolean>}
- */
-export async function modificarVoluntariado(id, voluntariadoActualizado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("voluntariados", "readwrite");
-    const store = tx.objectStore("voluntariados");
-    // Debes asegurarte de que el objeto tiene el id
-    voluntariadoActualizado.id = id;
-    const request = store.put(voluntariadoActualizado);
-    request.onsuccess = function () {
-      resolve(true);
-    };
-    request.onerror = function () {
-      reject(request.error);
-    };
-  });
+export async function deleteUsuario(email) {
+    const mutation = `
+        mutation BorrarUsuario($email: String!) {
+            borrarUsuario(email: $email)
+        }
+    `;
+    const data = await graphqlRequest(mutation, { email });
+    return data ? data.borrarUsuario : false;
 }
 
-/**
- * Elimina un voluntariado por ID de la base de datos (async).
- * @param {number} id
- */
-export async function borrarVoluntariado(id) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const trasaction = db.transaction("voluntariados", "readwrite");
-    const store = trasaction.objectStore("voluntariados");
-    const request = store.delete(id);
-    request.onsuccess = function (event) {
-      resolve(true);
+// --- SELECCIONADOS (Favoritos / Drag & Drop) ---
+
+export async function guardarSeleccionado(idUsuario, idVoluntariado) {
+    const mutation = `
+        mutation CrearSeleccionado($id_usuario: String!, $id_voluntariado: String!) {
+            crearSeleccionado(id_usuario: $id_usuario, id_voluntariado: $id_voluntariado) {
+                id
+            }
+        }
+    `;
+    const variables = { 
+        id_usuario: String(idUsuario), 
+        id_voluntariado: String(idVoluntariado) 
     };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
-  });
+    const data = await graphqlRequest(mutation, variables);
+    return data ? data.crearSeleccionado : null;
 }
 
-/**
- * Devuelve los voluntariados de un usuario (filtro por email) (async).
- * @param {string} email
- * @returns {Promise<Array>}
- */
-export async function voluntariadosPorUsuario(email) {
-  const todosVoluntarioados = await listarVoluntariados();
-  return todosVoluntarioados.filter((v) => v.email === email);
+export async function borrarSeleccionado(idSeleccion) {
+    const mutation = `
+        mutation BorrarSeleccionado($id: String!) {
+            borrarSeleccionado(id: $id)
+        }
+    `;
+    const data = await graphqlRequest(mutation, { id: String(idSeleccion) });
+    return data ? data.borrarSeleccionado : false;
 }
 
-//guardar voluntariados seleccionados
-export async function guardarSeleccionados(voluntariado) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("seleccionados", "readwrite");
-    const store = tx.objectStore("seleccionados");
-    const request = store.add(voluntariado);
-    request.onsuccess = function (event) {
-      resolve(event.target.result);
-    };
-    request.onerror = function (event) {
-      reject(request.result);
-    };
-  });
+export async function listarSeleccionados(idUsuario) {
+    if (!idUsuario) return [];
+
+    const query = `
+        query ListarSeleccionados($id_usuario: String!) {
+            seleccionadosPorUsuario(id_usuario: $id_usuario) {
+                id
+                voluntariado {
+                    id
+                    titulo
+                    tipo
+                    categoria
+                    descripcion
+                    email
+                    fecha
+                }
+            }
+        }
+    `;
+    const data = await graphqlRequest(query, { id_usuario: String(idUsuario) });
+    return data && data.seleccionadosPorUsuario 
+        ? data.seleccionadosPorUsuario.map(s => ({ ...s.voluntariado, id_seleccion: s.id }))
+        : [];
 }
 
-//listar voluntariados seleccionados
-export async function listarSeleccionados() {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction("seleccionados", "readonly");
-    const store = transaction.objectStore("seleccionados");
-    const request = store.getAll();
-    request.onsuccess = function (event) {
-      resolve(request.result);
-    };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
-  });
+// --- Alias y Compatibilidad ---
+
+export function getCategorias() {
+    return ["Todas", "Idiomas", "Deportes", "Profesiones"]; 
 }
 
-//borrar voluntariados seleccionados
-export async function borrarSeleccionados(id) {
-  const db = await abrirDB();
-  return new Promise((resolve, reject) => {
-    const trasaction = db.transaction("seleccionados", "readwrite");
-    const store = trasaction.objectStore("seleccionados");
-    const request = store.delete(id);
-    request.onsuccess = function (event) {
-      resolve(true);
-    };
-    request.onerror = function (event) {
-      reject(request.error);
-    };
-  });
-}
+export function inicializarDatos() {}
+export function listarVoluntariados() { return getVoluntariados(); }
+export function getActiveUser() { return obtenerUsuarioActivo(); }
+export { getUsuarios as listarUsuarios };
+
+// Exportamos los alias para evitar errores en dashboard.js
+export { borrarSeleccionado as borrarSeleccionados };
+export { getCategorias as getSeleccion }; 
+export { guardarSeleccionado as guardarSeleccionados };

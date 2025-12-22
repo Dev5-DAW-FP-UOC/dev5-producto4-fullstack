@@ -1,60 +1,33 @@
-// src/db/mongoClient.js
-import { MongoClient } from "mongodb";
+import mongoose from 'mongoose';
 
 /**
- * URI de conexión a Mongo DB.
- * Se obtiene de la variable de entorno `MONGODB_URI`
- * y, si no existe, se usa una instancia local por defecto.
- * @type {string}
- * */
-const uri = process.env.MONGODB_URI ?? "mongodb://127.0.0.1:27017";
-
-/**
- * Nombre de la base de datos a utilizar
- * Se obtiene de `MONGODB_DB` o por defecto `volunet`.
- * @type {string}
+ * URI de conexión. Usa la variable de entorno o local por defecto.
+ * Mongoose incluye el nombre de la DB en la propia URI.
  */
-const dbName = process.env.MONGODB_DB ?? "volunet";
+const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/volunet";
 
 /**
- * Cliente MongoDB compartido (singleton).
- * @type {MonogoClient | undefined}
+ * Inicia la conexión a MongoDB usando Mongoose.
+ * Mongoose gestiona su propio pool de conexiones internamente.
  */
-let client;
-
-/**
- * Instancia de la base de datos MongoDB.
- * @type {import ("mongodb").Db | undefined }
- */
-let db;
-
-/**
- * Devuelve la instancia de base de datos MongoDB.
- * Implementa un patrón singleton: reutiliza la misma conexión
- * durante el ciclo de vida del proceso.
- *
- * @async
- * @returns {Promise<import("mongodb").Db>} Base de datos de MongoDB ya conectada.
- */
-export async function getDb() {
-  if (db) return db;
-
-  client = new MongoClient(uri);
-  await client.connect();
-  db = client.db(dbName);
-  console.log(`[Mongo] Conectado a ${uri}, DB "${dbName}"`);
-  return db;
+export async function connectDB() {
+  try {
+    // La conexión de Mongoose es persistente
+    await mongoose.connect(uri);
+    console.log(`[Mongoose] ✅ Conectado exitosamente a: ${uri}`);
+    
+    return mongoose.connection;
+  } catch (error) {
+    console.error("[Mongoose] ❌ Error crítico conectando a la base de datos:", error);
+    process.exit(1); // Detenemos la app si no hay base de datos
+  }
 }
 
 /**
- * Maneja el cierre elegante de la aplicación.
- * Cuando el usuario pulsa Ctrl + C (SIGINT),
- * se cierra la conexión a MongoDB antes de terminar el proceso.
+ * Cierre limpio de la conexión al parar la app (Ctrl+C)
  */
 process.on("SIGINT", async () => {
-  if (client) {
-    await client.close();
-    console.log("[Mongo] Conexión Mongo cerrada");
-  }
+  await mongoose.connection.close();
+  console.log("\n[Mongoose] Conexión cerrada por terminación del proceso.");
   process.exit(0);
 });
