@@ -197,6 +197,16 @@ export async function borrarUsuario(email) {
   return resultado.deletedCount === 1;
 }
 
+/**
+ * Borra un usuario por su id numérico.
+ * @param {number|string} id - Id numérico del usuario.
+ * @returns {Promise<boolean>} true si se borró.
+ */
+export async function borrarUsuarioPorId(id) {
+  const resultado = await Usuario.deleteOne({ id: Number(id) });
+  return resultado.deletedCount === 1;
+}
+
 /* ------ LOGIN - USUARIOS ------ */
 
 /**

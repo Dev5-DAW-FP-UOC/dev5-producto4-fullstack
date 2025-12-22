@@ -97,9 +97,11 @@ app.use(
     resave: false,
     saveUninitialized: false, 
     cookie: {
-      secure: false,          // localhost
+      secure: false,          // localhost (no TLS) - in production set `true`
       httpOnly: true,         // correcto
-      sameSite: "lax",        
+      // Use 'lax' so cookies are sent for same-origin navigation and typical form/API requests
+      // while avoiding the need for Secure=true in local development.
+      sameSite: "lax",
       maxAge: 1000 * 60 * 60 * 24, // 1 día
     },
   })
