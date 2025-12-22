@@ -3,6 +3,12 @@ import { gqlFetch } from "./api/graphqlClient.js";
 
 console.log("[int_dashboard] cargado");
 
+// ===== Socket config =====
+const SOCKET_URL = "http://localhost:4000"; // funciona tanto si usas Live Server como si sirves desde 4000
+let socket = null;
+let refreshVolTimer = null;
+let refreshSelTimer = null;
+
 // Estado del dashboard
 const STATE = {
   categoria: "Todas",
@@ -12,21 +18,16 @@ const STATE = {
   perPage: 6,
   voluntariados: [],
   seleccionados: [],
-
-  // ✅ sesión actual
   me: null,
-
-  // ✅ mapa: id_voluntariado -> id_seleccion (para borrar bien)
   _selMap: new Map(),
 };
 
-// Atajos simples
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 
-// funciones “API”
+// ---------------- API ----------------
 async function apiMe() {
   const data = await gqlFetch(`query { me { id nombre email rol } }`);
-  return data.me; // puede ser null
+  return data.me;
 }
 
 async function apiCategorias() {
@@ -75,18 +76,71 @@ async function apiCrearSeleccionado(id_usuario, id_voluntariado) {
 }
 
 async function apiBorrarSeleccionado(id) {
-  const data = await gqlFetch(
-    `mutation ($id:Int!) { borrarSeleccionado(id:$id) }`,
-    { id }
-  );
+  const data = await gqlFetch(`mutation ($id:Int!) { borrarSeleccionado(id:$id) }`, { id });
   return data.borrarSeleccionado;
 }
 
+// ---------------- Realtime refresh helpers ----------------
+async function refreshVoluntariados() {
+  STATE.voluntariados = await apiVoluntariados();
+  draw();
+  renderSeleccionados();
+}
+
+async function refreshSeleccionados() {
+  const selDocs = await apiSeleccionadosPorUsuario(STATE.me.id);
+  STATE.seleccionados = selDocs.map((s) => s.id_voluntariado);
+  STATE._selMap = new Map(selDocs.map((s) => [s.id_voluntariado, s.id]));
+  draw();
+  renderSeleccionados();
+}
+
+function debounceRefreshVol() {
+  clearTimeout(refreshVolTimer);
+  refreshVolTimer = setTimeout(() => refreshVoluntariados().catch(console.error), 120);
+}
+
+function debounceRefreshSel() {
+  clearTimeout(refreshSelTimer);
+  refreshSelTimer = setTimeout(() => refreshSeleccionados().catch(console.error), 120);
+}
+
+// ---------------- Socket init ----------------
+function initRealtimeSocket(me) {
+  if (!window.io) {
+    console.warn("[socket] Falta cargar /socket.io/socket.io.js en el HTML (ver instrucciones al final).");
+    return;
+  }
+
+  socket = window.io(SOCKET_URL, {
+    transports: ["websocket", "polling"],
+    withCredentials: true,
+  });
+
+  socket.on("connect", () => {
+    console.log("[socket] conectado:", socket.id);
+    socket.emit("join", { userId: me.id, rol: me.rol });
+  });
+
+  socket.on("disconnect", () => console.log("[socket] desconectado"));
+
+  socket.on("voluntariado:changed", (payload) => {
+    console.log("[socket] voluntariado:changed", payload);
+    debounceRefreshVol();
+  });
+
+  socket.on("seleccionado:changed", (payload) => {
+    console.log("[socket] seleccionado:changed", payload);
+    // Solo refrescamos si afecta a mi usuario (o soy admin y quiero verlo todo)
+    if (me.rol === "admin" || payload?.userId === me.id) debounceRefreshSel();
+  });
+}
+
+// ---------------- UI helpers ----------------
 function setNavbarUser(name) {
   let badge = $("#userBadge") || document.querySelector(".navbar-text");
   if (!badge) {
-    const container =
-      $("#nav") || document.querySelector(".navbar .container, .navbar");
+    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
     badge = document.createElement("span");
     badge.className = "navbar-text small text-muted";
     badge.id = "userBadge";
@@ -105,16 +159,11 @@ function bindLogoutButton() {
     } catch (err) {
       console.warn("[logout] fallo en servidor, limpio igual", err);
     }
-
-    // UI reset
     setNavbarUser("-no login-");
-
-    // Redirigir a login
     window.location.href = "./login.html";
   });
 }
 
-// Formatea "YYYY-MM-DD" a "dd/mm/yyyy"
 function fmtFecha(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -124,7 +173,6 @@ function fmtFecha(iso) {
   return `${dd}/${mm}/${yy}`;
 }
 
-// Paginación simple
 function paginate(arr, page = 1, perPage = 6) {
   const pages = Math.max(1, Math.ceil(arr.length / perPage));
   const p = Math.min(Math.max(page, 1), pages);
@@ -132,7 +180,6 @@ function paginate(arr, page = 1, perPage = 6) {
   return { page: p, pages, items: arr.slice(start, start + perPage) };
 }
 
-// Clase CSS según categoría (colorea la card)
 function categoryClass(cat) {
   return (
     {
@@ -143,7 +190,6 @@ function categoryClass(cat) {
   );
 }
 
-// Dibuja la estructura base
 async function renderLayout(container, categorias) {
   const filtroSeleccion = ["Todos", "Seleccionados"];
 
@@ -158,9 +204,7 @@ async function renderLayout(container, categorias) {
           .map(
             (c) => `
               <button
-                class="tab-pill tab-${c} ${
-              c === STATE.categoria ? "active" : ""
-            }"
+                class="tab-pill tab-${c} ${c === STATE.categoria ? "active" : ""}"
                 data-cat="${c}"
                 type="button"
               >
@@ -175,9 +219,7 @@ async function renderLayout(container, categorias) {
             .map(
               (c) => `
               <button
-                class="tab-pill tab-${c} ${
-                c === STATE.filtroSeleccion ? "active" : ""
-              }"
+                class="tab-pill tab-${c} ${c === STATE.filtroSeleccion ? "active" : ""}"
                 data-cat="${c}"
                 type="button"
               >
@@ -205,17 +247,11 @@ async function renderLayout(container, categorias) {
   `;
 }
 
-// HTML de una tarjeta
 function cardHTML(v) {
   const catCls = categoryClass(v.categoria);
-  const typeBadge =
-    v.type === "oferta"
-      ? `<span class="badge badge-oferta">Oferta</span>`
-      : `<span class="badge badge-peticion">Petición</span>`;
+  const typeBadge = v.type === "oferta" ? `<span class="badge badge-oferta">Oferta</span>` : `<span class="badge badge-peticion">Petición</span>`;
 
-  const autorTxt =
-    v.nombre_usuario ||
-    (v.id_usuario != null ? `Usuario #${v.id_usuario}` : "-");
+  const autorTxt = v.nombre_usuario || (v.id_usuario != null ? `Usuario #${v.id_usuario}` : "-");
 
   return `
     <div class="col" draggable="true" data-id="${v.id}">
@@ -226,9 +262,7 @@ function cardHTML(v) {
             <div class="small small-muted fw-semibold">${v.categoria}</div>
           </div>
           <h5 class="mb-1">${v.titulo}</h5>
-          <div class="small small-muted mb-2">por <strong>${autorTxt}</strong> · ${
-    v.modalidad
-  }</div>
+          <div class="small small-muted mb-2">por <strong>${autorTxt}</strong> · ${v.modalidad}</div>
           <p class="flex-grow-1 mb-2">${v.resumen || ""}</p>
           <div class="d-flex justify-content-between align-items-center">
             <button class="btn btn-sm btn-outline-secondary" type="button">Ver detalle</button>
@@ -240,13 +274,11 @@ function cardHTML(v) {
   `;
 }
 
-// Aplica filtros (categoría + texto) y orden por fecha desc.
 function applyFilters(list) {
   let out = list;
 
-  if (STATE.categoria !== "Todas") {
-    out = out.filter((v) => v.categoria === STATE.categoria);
-  }
+  if (STATE.categoria !== "Todas") out = out.filter((v) => v.categoria === STATE.categoria);
+
   if (STATE.query) {
     const q = STATE.query;
     out = out.filter(
@@ -255,20 +287,17 @@ function applyFilters(list) {
         (v.resumen || "").toLowerCase().includes(q) ||
         String(v.id_usuario ?? "")
           .toLowerCase()
-          .includes(q) // ✅ filtrar por autor (id_usuario)
+          .includes(q)
     );
   }
 
   return [...out].sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""));
 }
 
-// Construye la paginación
 function buildPager(page, pages) {
   if (pages <= 1) return "";
   const item = (p, label = p, disabled = false, active = false) => `
-    <li class="page-item ${disabled ? "disabled" : ""} ${
-    active ? "active" : ""
-  }">
+    <li class="page-item ${disabled ? "disabled" : ""} ${active ? "active" : ""}">
       <a class="page-link" href="#" data-page="${p}">${label}</a>
     </li>
   `;
@@ -283,7 +312,6 @@ function buildPager(page, pages) {
   return html;
 }
 
-// Marca pestaña activa
 function paintActiveTab() {
   document.querySelectorAll("#tabs .tab-pill").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.cat === STATE.categoria);
@@ -293,7 +321,6 @@ function paintActiveTab() {
   });
 }
 
-// Dibujo principal
 function draw() {
   const grid = $("#grid");
   const pager = $("#pager");
@@ -301,13 +328,9 @@ function draw() {
   let listaBase;
 
   if (STATE.filtroSeleccion !== "Todos") {
-    listaBase = STATE.seleccionados
-      .map((id) => STATE.voluntariados.find((v) => v.id === id))
-      .filter((v) => v);
+    listaBase = STATE.seleccionados.map((id) => STATE.voluntariados.find((v) => v.id === id)).filter((v) => v);
   } else {
-    listaBase = STATE.voluntariados.filter(
-      (v) => !STATE.seleccionados.includes(v.id)
-    );
+    listaBase = STATE.voluntariados.filter((v) => !STATE.seleccionados.includes(v.id));
   }
 
   const filtered = applyFilters(listaBase || []);
@@ -334,7 +357,6 @@ function draw() {
   paintActiveTab();
 }
 
-// Seleccionados
 function renderSeleccionados() {
   const dropZoneSection = $("#drop-zone-section");
   const dropZone = $("#drop-zone");
@@ -346,9 +368,7 @@ function renderSeleccionados() {
   }
 
   dropZoneSection.style.display = "block";
-  dropZone
-    .querySelectorAll(".card-selected-item")
-    .forEach((card) => card.remove());
+  dropZone.querySelectorAll(".card-selected-item").forEach((card) => card.remove());
 
   if (STATE.seleccionados.length === 0) {
     placeholder.style.display = "block";
@@ -361,13 +381,9 @@ function renderSeleccionados() {
     .map((id) => {
       const voluntariado = STATE.voluntariados.find((v) => v.id === id);
       if (!voluntariado) return "";
-      const catCls = categoryClass(voluntariado.categoria);
 
-      const autorTxt =
-        voluntariado.nombre_usuario ||
-        (voluntariado.id_usuario != null
-          ? `Usuario #${voluntariado.id_usuario}`
-          : "-");
+      const catCls = categoryClass(voluntariado.categoria);
+      const autorTxt = voluntariado.nombre_usuario || (voluntariado.id_usuario != null ? `Usuario #${voluntariado.id_usuario}` : "-");
 
       return `
         <div class="card card-selected-item card-ld ${catCls} p-2 shadow-sm" draggable="true" data-id-seleccionado="${id}">
@@ -402,58 +418,16 @@ async function comprobarSesion() {
   }
 }
 
-function applyNavbarState(me) {
-  const badge = document.getElementById("userBadge");
-  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
-
-  const linkDashboard = document
-    .querySelector('a[href="./dashboard.html"]')
-    ?.closest("li");
-  const linkVoluntariados = document
-    .querySelector('a[href="./voluntariados.html"]')
-    ?.closest("li");
-  const linkUsuarios = document
-    .querySelector('a[href="./usuarios.html"]')
-    ?.closest("li");
-  const linkLogin = document
-    .querySelector('a[href="./login.html"]')
-    ?.closest("li");
-
-  const show = (el) => el && (el.style.display = "");
-  const hide = (el) => el && (el.style.display = "none");
-
-  if (!me) {
-    // ❌ NO hay sesión
-    if (badge) badge.textContent = "-no login-";
-    hide(dropdown);
-
-    hide(linkDashboard);
-    hide(linkVoluntariados);
-    hide(linkUsuarios);
-    show(linkLogin);
-
-    return;
-  }
-
-  // ✅ Hay sesión
-  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
-  show(dropdown);
-
-  show(linkDashboard);
-  show(linkVoluntariados);
-  hide(linkLogin);
-
-  // 👮 Usuarios solo admin
-  if (me.rol === "admin") show(linkUsuarios);
-  else hide(linkUsuarios);
-}
-
 // Init
 document.addEventListener("DOMContentLoaded", async () => {
   const me = await comprobarSesion();
   if (!me) return;
 
   STATE.me = me;
+
+  // ✅ socket realtime
+  initRealtimeSocket(me);
+
   setNavbarUser(me.nombre);
   bindLogoutButton();
 
@@ -469,7 +443,6 @@ async function initDashboard() {
   STATE.voluntariados = await apiVoluntariados();
 
   const selDocs = await apiSeleccionadosPorUsuario(STATE.me.id);
-
   STATE.seleccionados = selDocs.map((s) => s.id_voluntariado);
   STATE._selMap = new Map(selDocs.map((s) => [s.id_voluntariado, s.id]));
 
@@ -529,10 +502,7 @@ function addDragAndDropListeners() {
         await apiBorrarSeleccionado(seleccionId);
         STATE._selMap.delete(idVol);
       } catch (err) {
-        console.error(
-          "[dashboard] error eliminando seleccionado en servidor",
-          err
-        );
+        console.error("[dashboard] error eliminando seleccionado en servidor", err);
       }
     }
 

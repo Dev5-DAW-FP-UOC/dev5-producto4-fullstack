@@ -1,37 +1,33 @@
 // src/graphql/schema.js
 
-import {
-  GraphQLBoolean,
-  GraphQLInt,
-  GraphQLList,
-  GraphQLNonNull,
-  GraphQLObjectType,
-  GraphQLSchema,
-  GraphQLString,
-} from "graphql";
+import { GraphQLBoolean, GraphQLInt, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString } from "graphql";
 
 import {
   // Usuarios
   altaUsuario,
-  // Voluntariados
-  altaVoluntariado,
-  borrarSeleccionado,
   borrarUsuario,
-  borrarVoluntariado,
   buscarUsuarioPorEmail,
   buscarUsuarioPorId,
+  listarUsuarios,
+  loginUsuario,
+  modificarUsuario,
+
+  // Voluntariados
+  altaVoluntariado,
+  borrarVoluntariado,
+  listarVoluntariados,
+  modificarVoluntariado,
+  voluntariadosPorUsuario,
+  buscarVoluntariadoPorId,
+
   // Categorias
   getCategorias,
+
   // Seleccionados
   guardarSeleccionado,
   listarSeleccionados,
-  listarUsuarios,
-  listarVoluntariados,
-  loginUsuario,
-  modificarUsuario,
-  modificarVoluntariado,
   seleccionadosPorUsuario,
-  voluntariadosPorUsuario,
+  borrarSeleccionado,
 } from "../services/almacenajeService.js";
 
 function getSessionUser(ctx) {
@@ -54,14 +50,17 @@ function requireAdmin(ctx) {
   return u;
 }
 
+function emitVolChanged(ctx, ownerId, payload) {
+  // admins siempre
+  ctx.io?.to("admins").emit("voluntariado:changed", payload);
+  // dueño (si existe)
+  if (ownerId != null) ctx.io?.to(`user:${ownerId}`).emit("voluntariado:changed", payload);
+}
+
 /* =====================================
  *  TYPES
  * ===================================== */
 
-/**
- * Type GraphQL que representa a un usuario del sistema.
- * Equivale al modelo `Usuario` del backend.
- */
 const UsuarioType = new GraphQLObjectType({
   name: "Usuario",
   fields: {
@@ -73,10 +72,6 @@ const UsuarioType = new GraphQLObjectType({
   },
 });
 
-/**
- * Type GraphQL que representa un voluntariado.
- * Equivale al modelo `Voluntariado` del backend.
- */
 const VoluntariadoType = new GraphQLObjectType({
   name: "Voluntariado",
   fields: {
@@ -92,16 +87,12 @@ const VoluntariadoType = new GraphQLObjectType({
   },
 });
 
-/**
- * Type GraphQL que representa la relación de selección
- * entre un usuario y un voluntariado.
- */
 const SeleccionadoType = new GraphQLObjectType({
   name: "Seleccionado",
   fields: {
-    id: { type: GraphQLInt }, // id de la selección
-    id_usuario: { type: GraphQLInt }, // id del usuario que selecciona
-    id_voluntariado: { type: GraphQLInt }, // id del voluntariado seleccionado
+    id: { type: GraphQLInt },
+    id_usuario: { type: GraphQLInt },
+    id_voluntariado: { type: GraphQLInt },
   },
 });
 
@@ -109,14 +100,9 @@ const SeleccionadoType = new GraphQLObjectType({
  *  ROOT QUERY
  * ===================================== */
 
-/**
- * Root Query de la API GraphQL.
- * Define todas las operaciones de lectura.
- */
 const RootQuery = new GraphQLObjectType({
   name: "Query",
   fields: {
-    // ----- USUARIOS -----
     usuarios: {
       type: new GraphQLList(UsuarioType),
       resolve: (_p, _a, ctx) => {
@@ -130,8 +116,7 @@ const RootQuery = new GraphQLObjectType({
       args: { email: { type: new GraphQLNonNull(GraphQLString) } },
       resolve: async (_p, { email }, ctx) => {
         const u = requireAuth(ctx);
-        if (!isAdmin(u) && u.email !== email)
-          throw new Error("Acceso denegado");
+        if (!isAdmin(u) && u.email !== email) throw new Error("Acceso denegado");
         return buscarUsuarioPorEmail(email);
       },
     },
@@ -146,7 +131,6 @@ const RootQuery = new GraphQLObjectType({
       },
     },
 
-    // ----- VOLUNTARIADOS -----
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_p, _a, ctx) => {
@@ -161,19 +145,16 @@ const RootQuery = new GraphQLObjectType({
       args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
       resolve: async (_p, { id_usuario }, ctx) => {
         const u = requireAuth(ctx);
-        if (!isAdmin(u) && u.id !== id_usuario)
-          throw new Error("Acceso denegado");
+        if (!isAdmin(u) && u.id !== id_usuario) throw new Error("Acceso denegado");
         return voluntariadosPorUsuario(id_usuario);
       },
     },
 
-    // ----- CATEGORÍAS -----
     categorias: {
       type: new GraphQLList(GraphQLString),
       resolve: () => getCategorias(),
     },
 
-    // ----- SELECIONADOS -----
     seleccionados: {
       type: new GraphQLList(SeleccionadoType),
       resolve: async (_p, _a, ctx) => {
@@ -188,8 +169,7 @@ const RootQuery = new GraphQLObjectType({
       args: { id_usuario: { type: new GraphQLNonNull(GraphQLInt) } },
       resolve: async (_p, { id_usuario }, ctx) => {
         const u = requireAuth(ctx);
-        if (!isAdmin(u) && u.id !== id_usuario)
-          throw new Error("Acceso denegado");
+        if (!isAdmin(u) && u.id !== id_usuario) throw new Error("Acceso denegado");
         return seleccionadosPorUsuario(id_usuario);
       },
     },
@@ -199,7 +179,7 @@ const RootQuery = new GraphQLObjectType({
       resolve: async (_p, _a, ctx) => {
         const sUser = ctx?.req?.session?.user;
         if (!sUser) return null;
-        return buscarUsuarioPorId(sUser.id); // debe devolver 1 usuario (objeto)
+        return buscarUsuarioPorId(sUser.id);
       },
     },
   },
@@ -209,15 +189,9 @@ const RootQuery = new GraphQLObjectType({
  *  ROOT MUTATION
  * ===================================== */
 
-/**
- * Root Mutation de la API GraphQL.
- * Define todas las operaciones de escritura (alta, modificación, borrado).
- */
 const RootMutation = new GraphQLObjectType({
   name: "Mutation",
   fields: {
-    // ----- USUARIOS -----
-
     crearUsuario: {
       type: UsuarioType,
       args: {
@@ -243,8 +217,7 @@ const RootMutation = new GraphQLObjectType({
       },
       resolve: async (_p, { emailOriginal, ...datosActualizados }, ctx) => {
         const u = requireAuth(ctx);
-        if (!isAdmin(u) && u.email !== emailOriginal)
-          throw new Error("Acceso denegado");
+        if (!isAdmin(u) && u.email !== emailOriginal) throw new Error("Acceso denegado");
         return modificarUsuario(emailOriginal, datosActualizados);
       },
     },
@@ -257,8 +230,6 @@ const RootMutation = new GraphQLObjectType({
         return borrarUsuario(email);
       },
     },
-
-    // ----- LOGIN -----
 
     login: {
       type: UsuarioType,
@@ -280,25 +251,19 @@ const RootMutation = new GraphQLObjectType({
       },
     },
 
-    // ----- LOGOUT -----
-
     logout: {
       type: GraphQLBoolean,
       resolve: async (_p, _a, ctx) => {
-        // Si no hay sesión, para el front lo consideramos "ok" igualmente
         if (!ctx?.req?.session) return true;
 
-        // 1) Destruir sesión en store (MongoStore)
         await new Promise((resolve, reject) => {
           ctx.req.session.destroy((err) => (err ? reject(err) : resolve()));
         });
 
-        // 2) Borrar cookie en el navegador
-        // IMPORTANTE: debe coincidir con cookie.name y opciones (sameSite/secure)
         ctx.res.clearCookie("volunet.sid", {
           httpOnly: true,
           sameSite: "lax",
-          secure: false, // en local sin https
+          secure: false,
           path: "/",
         });
 
@@ -314,7 +279,7 @@ const RootMutation = new GraphQLObjectType({
         type: { type: new GraphQLNonNull(GraphQLString) },
         titulo: { type: new GraphQLNonNull(GraphQLString) },
         id_usuario: { type: new GraphQLNonNull(GraphQLInt) },
-        modalidad: { type: GraphQLString }, // opcional
+        modalidad: { type: GraphQLString },
         categoria: { type: new GraphQLNonNull(GraphQLString) },
         resumen: { type: new GraphQLNonNull(GraphQLString) },
         fecha: { type: new GraphQLNonNull(GraphQLString) },
@@ -324,16 +289,12 @@ const RootMutation = new GraphQLObjectType({
 
         const created = await altaVoluntariado({
           ...args,
-          modalidad: args.modalidad || "Presencial", // ✅ default válido
-          id_usuario: u.id, // ✅ el dueño siempre es el logueado
+          modalidad: args.modalidad || "Presencial",
+          id_usuario: u.id,
         });
 
-        ctx.io?.to("admins").emit("voluntariado:created", { byUserId: u.id });
-        ctx.io
-          ?.to(`user:${u.id}`)
-          .emit("voluntariado:created", { byUserId: u.id });
-
-        return created; // ✅ devuelve el creado (no crees otro)
+        emitVolChanged(ctx, u.id, { action: "created", id: created.id, ownerId: u.id });
+        return created;
       },
     },
 
@@ -344,7 +305,6 @@ const RootMutation = new GraphQLObjectType({
         type: { type: GraphQLString },
         titulo: { type: GraphQLString },
         id_usuario: { type: GraphQLInt },
-        // modalidad: { type: GraphQLString },
         categoria: { type: GraphQLString },
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
@@ -352,16 +312,18 @@ const RootMutation = new GraphQLObjectType({
       resolve: async (_p, { id, ...datosActualizados }, ctx) => {
         const u = requireAuth(ctx);
 
+        const before = await buscarVoluntariadoPorId(id);
+        if (!before) throw new Error("Voluntariado no encontrado");
+
         if (!isAdmin(u)) {
           const misVol = await voluntariadosPorUsuario(u.id);
-          if (!misVol.some((v) => v.id === id))
-            throw new Error("Acceso denegado");
-          // extra: impedir cambiar el dueño
-          if ("id_usuario" in datosActualizados)
-            delete datosActualizados.id_usuario;
+          if (!misVol.some((v) => v.id === id)) throw new Error("Acceso denegado");
+          if ("id_usuario" in datosActualizados) delete datosActualizados.id_usuario;
         }
 
-        return modificarVoluntariado(id, datosActualizados);
+        const ok = await modificarVoluntariado(id, datosActualizados);
+        if (ok) emitVolChanged(ctx, before.id_usuario, { action: "updated", id, ownerId: before.id_usuario });
+        return ok;
       },
     },
 
@@ -371,13 +333,17 @@ const RootMutation = new GraphQLObjectType({
       resolve: async (_p, { id }, ctx) => {
         const u = requireAuth(ctx);
 
+        const before = await buscarVoluntariadoPorId(id);
+        if (!before) throw new Error("Voluntariado no encontrado");
+
         if (!isAdmin(u)) {
           const misVol = await voluntariadosPorUsuario(u.id);
-          if (!misVol.some((v) => v.id === id))
-            throw new Error("Acceso denegado");
+          if (!misVol.some((v) => v.id === id)) throw new Error("Acceso denegado");
         }
 
-        return borrarVoluntariado(id);
+        const ok = await borrarVoluntariado(id);
+        if (ok) emitVolChanged(ctx, before.id_usuario, { action: "deleted", id, ownerId: before.id_usuario });
+        return ok;
       },
     },
 
@@ -394,11 +360,8 @@ const RootMutation = new GraphQLObjectType({
 
         const sel = await guardarSeleccionado(u.id, id_voluntariado);
 
-        // 🔔 PUB/SUB: avisar para refrescar dashboard
         ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
-        ctx.io
-          ?.to(`user:${u.id}`)
-          .emit("seleccionado:changed", { userId: u.id });
+        ctx.io?.to(`user:${u.id}`).emit("seleccionado:changed", { userId: u.id });
 
         return sel;
       },
@@ -412,18 +375,13 @@ const RootMutation = new GraphQLObjectType({
 
         if (!isAdmin(u)) {
           const misSel = await seleccionadosPorUsuario(u.id);
-          if (!misSel.some((s) => s.id === id)) {
-            throw new Error("Acceso denegado");
-          }
+          if (!misSel.some((s) => s.id === id)) throw new Error("Acceso denegado");
         }
 
         const ok = await borrarSeleccionado(id);
 
-        // 🔔 PUB/SUB: avisar para refrescar dashboard
         ctx.io?.to("admins").emit("seleccionado:changed", { userId: u.id });
-        ctx.io
-          ?.to(`user:${u.id}`)
-          .emit("seleccionado:changed", { userId: u.id });
+        ctx.io?.to(`user:${u.id}`).emit("seleccionado:changed", { userId: u.id });
 
         return ok;
       },
@@ -431,13 +389,6 @@ const RootMutation = new GraphQLObjectType({
   },
 });
 
-/* =====================================
- *  EXPORT SCHEMA
- * ===================================== */
-
-/**
- * Esquema principal de GraphQL que combina Query y Mutation.
- */
 export const schema = new GraphQLSchema({
   query: RootQuery,
   mutation: RootMutation,

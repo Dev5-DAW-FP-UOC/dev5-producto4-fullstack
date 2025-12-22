@@ -30,13 +30,21 @@ const __dirname = path.dirname(__filename);
 const FRONTEND_DIR = path.join(__dirname, "../p2-frontend");
 
 // =============================
+// CORS helper (acepta cualquier localhost:*)
+// =============================
+const isLocalhost = (origin) => {
+  if (!origin) return true; // Postman/cURL
+  return /^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin);
+};
+
+// =============================
 // Socket.IO
 // =============================
 const io = new SocketIOServer(server, {
-  // Si frontend y backend van en el mismo origen (localhost:4000),
-  // esto realmente no es necesario, pero lo dejamos “seguro”.
   cors: {
-    origin: ["http://localhost:4000", "http://127.0.0.1:4000"],
+    origin(origin, cb) {
+      cb(null, isLocalhost(origin));
+    },
     credentials: true,
   },
 });
@@ -44,10 +52,14 @@ const io = new SocketIOServer(server, {
 io.on("connection", (socket) => {
   console.log("[socket] cliente conectado:", socket.id);
 
-  // join por rol/usuario
   socket.on("join", ({ userId, rol }) => {
-    if (rol === "admin") socket.join("admins");
-    if (userId) socket.join(`user:${userId}`);
+    try {
+      if (rol === "admin") socket.join("admins");
+      if (userId) socket.join(`user:${userId}`);
+      console.log("[socket] join:", { userId, rol });
+    } catch (e) {
+      console.warn("[socket] join error:", e);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -60,15 +72,10 @@ io.on("connection", (socket) => {
 // =============================
 app.use(express.json());
 
-// ✅ CORS: si todo va en localhost:4000, no lo necesitas.
-// Lo dejamos para que no falle si alguna vez abres el front desde otro origen.
-// Importante: permitir requests sin header Origin (Postman/cURL).
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin) return cb(null, true);
-      const allowed = ["http://localhost:4000", "http://127.0.0.1:4000"];
-      return cb(null, allowed.includes(origin));
+      cb(null, isLocalhost(origin));
     },
     credentials: true,
   })
@@ -83,11 +90,8 @@ app.use(sessionMiddleware());
 // =============================
 // Frontend estático (sin Live Server)
 // =============================
-
-// ✅ Sirve archivos estáticos: /login.html, /dashboard.html, /css/*, /js/*, etc.
 app.use(express.static(FRONTEND_DIR));
 
-// ✅ Página por defecto: cambia a "login.html" si esa es tu entrada
 app.get("/", (_req, res) => {
   res.sendFile(path.join(FRONTEND_DIR, "index.html"));
 });
@@ -113,8 +117,8 @@ app.all(
     schema,
     context: (req, res) => ({
       req: req.raw, // ✅ aquí vive req.session para graphql-http
-      res, // ✅ Express res (tiene clearCookie)
-      io,
+      res,
+      io, // ✅ inyectamos socket server en context
     }),
   })
 );
@@ -122,11 +126,7 @@ app.all(
 // =============================
 // Arranque + seed
 // =============================
-
-// ✅ 1) conectar primero
 await connectMongoose();
-
-// ✅ 2) luego seed
 await initMongoData();
 
 server.listen(PORT, () => {

@@ -1,7 +1,11 @@
 // ./js/int_voluntariados.js
-// Voluntariados (GraphQL) + sesión (cookie) + Canvas
+// Voluntariados (GraphQL) + sesión (cookie) + Canvas + Realtime (Socket.IO)
 
 const API_URL = "http://localhost:4000/graphql";
+const SOCKET_URL = "http://localhost:4000";
+let socket = null;
+let refreshTimer = null;
+
 const $ = (s, ctx = document) => ctx.querySelector(s);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -69,9 +73,7 @@ async function crearVoluntariadoAPI(args) {
         categoria: $categoria,
         resumen: $resumen,
         fecha: $fecha
-      ) {
-        id
-      }
+      ) { id }
     }
   `;
   const data = await fetchGraphQL(m, args);
@@ -79,11 +81,7 @@ async function crearVoluntariadoAPI(args) {
 }
 
 async function borrarVoluntariadoAPI(id) {
-  const m = `
-    mutation ($id: Int!) {
-      borrarVoluntariado(id: $id)
-    }
-  `;
+  const m = `mutation ($id: Int!) { borrarVoluntariado(id: $id) }`;
   const data = await fetchGraphQL(m, { id: Number(id) });
   return !!data?.borrarVoluntariado;
 }
@@ -97,13 +95,7 @@ function setNavbarUser(name) {
 function fmtFecha(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return (
-    String(d.getDate()).padStart(2, "0") +
-    "/" +
-    String(d.getMonth() + 1).padStart(2, "0") +
-    "/" +
-    d.getFullYear()
-  );
+  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
 }
 
 function normCat(c) {
@@ -122,9 +114,7 @@ function shortLabel(str, max = 16) {
 function itemHTML(v) {
   const cat = normCat(v.categoria);
   const t = String(v.type || "oferta").toLowerCase();
-  const typeBadge = t.includes("pet")
-    ? '<span class="badge bg-primary me-2">Petición</span>'
-    : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
+  const typeBadge = t.includes("pet") ? '<span class="badge bg-primary me-2">Petición</span>' : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
 
   return `
     <div class="item p-3 p-md-4 border rounded-3 cat-${cat}" data-id="${v.id}">
@@ -175,10 +165,43 @@ function drawList() {
   }
 
   list.innerHTML = state.vols.map(itemHTML).join("");
-  $("#countVol")?.replaceChildren(
-    document.createTextNode(`${state.vols.length} ítem(s)`)
-  );
+  $("#countVol")?.replaceChildren(document.createTextNode(`${state.vols.length} ítem(s)`));
   drawCanvasChart();
+}
+
+function debounceReload() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
+    try {
+      await loadFromAPI();
+      drawList();
+    } catch (e) {
+      console.error(e);
+    }
+  }, 120);
+}
+
+// ---------------- Realtime ----------------
+function initRealtimeSocket(me) {
+  if (!window.io) {
+    console.warn("[socket] Falta cargar /socket.io/socket.io.js en el HTML.");
+    return;
+  }
+
+  socket = window.io(SOCKET_URL, {
+    transports: ["websocket", "polling"],
+    withCredentials: true,
+  });
+
+  socket.on("connect", () => {
+    console.log("[socket] conectado:", socket.id);
+    socket.emit("join", { userId: me.id, rol: me.rol });
+  });
+
+  socket.on("voluntariado:changed", (payload) => {
+    console.log("[socket] voluntariado:changed", payload);
+    debounceReload();
+  });
 }
 
 async function handleSubmit(e) {
@@ -196,7 +219,7 @@ async function handleSubmit(e) {
   const payload = {
     type: (f.tipo?.value || "oferta").toLowerCase(),
     titulo,
-    id_usuario: Number(state.me.id), // obligatorio por schema, aunque backend lo sobrescribe
+    id_usuario: Number(state.me.id),
     modalidad: f.modalidad?.value || "Presencial",
     categoria: normCat(f.categoria?.value),
     resumen,
@@ -250,11 +273,9 @@ function drawCanvasChart() {
 
   const ctx = canvas.getContext("2d");
 
-  // HiDPI
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth || 720;
-  const cssH =
-    canvas.clientHeight || Number(canvas.getAttribute("height")) || 120;
+  const cssH = canvas.clientHeight || Number(canvas.getAttribute("height")) || 120;
 
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
@@ -264,15 +285,10 @@ function drawCanvasChart() {
   ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
   ctx.textBaseline = "middle";
 
-  // Agrupa por id_usuario (porque tu schema no trae nombre)
-  // Agrupa por nombre_usuario (fallback_toggle)
   const userMap = {};
   for (const v of state.vols) {
-    const userLabel =
-      v.nombre_usuario || (v.id_usuario != null ? `U${v.id_usuario}` : "—");
-
+    const userLabel = v.nombre_usuario || (v.id_usuario != null ? `U${v.id_usuario}` : "—");
     if (!userMap[userLabel]) userMap[userLabel] = { oferta: 0, peticion: 0 };
-
     if (String(v.type).includes("pet")) userMap[userLabel].peticion++;
     else userMap[userLabel].oferta++;
   }
@@ -294,12 +310,8 @@ function drawCanvasChart() {
   const scale = (cssH - padTop - padBottom) / maxVal;
 
   const gap = 14;
-  const barW = Math.max(
-    10,
-    Math.min(34, (cssW - padX * 2 - gap * users.length) / (users.length * 2))
-  );
+  const barW = Math.max(10, Math.min(34, (cssW - padX * 2 - gap * users.length) / (users.length * 2)));
 
-  // eje
   ctx.strokeStyle = "#aaa";
   ctx.beginPath();
   ctx.moveTo(padX, cssH - padBottom + 0.5);
@@ -321,66 +333,15 @@ function drawCanvasChart() {
     ctx.fillStyle = "#111";
     ctx.textAlign = "center";
     ctx.fillText(String(oferta), x0 + barW / 2, cssH - padBottom - h1 - 10);
-    ctx.fillText(
-      String(peticion),
-      x0 + barW + barW / 2,
-      cssH - padBottom - h2 - 10
-    );
+    ctx.fillText(String(peticion), x0 + barW + barW / 2, cssH - padBottom - h2 - 10);
 
     ctx.fillStyle = "#555";
     ctx.fillText(shortLabel(user, 10), x0 + barW, cssH - padBottom + 12);
   });
 }
 
-function applyNavbarState(me) {
-  const badge = document.getElementById("userBadge");
-  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
-
-  const linkDashboard = document
-    .querySelector('a[href="./dashboard.html"]')
-    ?.closest("li");
-  const linkVoluntariados = document
-    .querySelector('a[href="./voluntariados.html"]')
-    ?.closest("li");
-  const linkUsuarios = document
-    .querySelector('a[href="./usuarios.html"]')
-    ?.closest("li");
-  const linkLogin = document
-    .querySelector('a[href="./login.html"]')
-    ?.closest("li");
-
-  const show = (el) => el && (el.style.display = "");
-  const hide = (el) => el && (el.style.display = "none");
-
-  if (!me) {
-    // ❌ NO hay sesión
-    if (badge) badge.textContent = "-no login-";
-    hide(dropdown);
-
-    hide(linkDashboard);
-    hide(linkVoluntariados);
-    hide(linkUsuarios);
-    show(linkLogin);
-
-    return;
-  }
-
-  // ✅ Hay sesión
-  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
-  show(dropdown);
-
-  show(linkDashboard);
-  show(linkVoluntariados);
-  hide(linkLogin);
-
-  // 👮 Usuarios solo admin
-  if (me.rol === "admin") show(linkUsuarios);
-  else hide(linkUsuarios);
-}
-
 // ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  // Nota: cambia disabled -> readonly en el HTML para que se vea siempre el email
   try {
     state.me = await getMe();
   } catch (err) {
@@ -393,12 +354,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
+  // ✅ socket realtime
+  initRealtimeSocket(state.me);
+
   setNavbarUser(state.me.nombre);
 
   const emailInput = $("#email");
-  if (emailInput && state.me.email) {
-    emailInput.value = state.me.email;
-  }
+  if (emailInput && state.me.email) emailInput.value = state.me.email;
 
   const fch = $("#fecha");
   if (fch && !fch.value) fch.value = todayISO();

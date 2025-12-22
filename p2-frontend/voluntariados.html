@@ -4,17 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Volunet · Gestión de voluntarios</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-    />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
     <!-- sube el número de versión si no ves cambios por caché -->
     <link rel="stylesheet" href="./css/styles.css?v=10" />
   </head>
 
   <body class="volunet-body bg-light text-dark">
     <!-- Navbar -->
-      <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-1">
+    <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-1">
       <div class="container">
         <a class="navbar-brand d-flex align-items-center gap-2" href="./dashboard.html">
           <img src="./assets/img/logo_volunet.png" alt="Volunet" class="brand-logo" />
@@ -34,21 +31,13 @@
 
           <!-- ✅ Dropdown usuario (solo Cerrar sesión) -->
           <div class="dropdown">
-            <button
-              class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2"
-              type="button"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              id="userMenuBtn"
-            >
+            <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="userMenuBtn">
               <span class="user-avatar">👤</span>
               <span class="small fw-semibold" id="userBadge">-no login-</span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
               <li>
-                <button class="dropdown-item text-danger" type="button" id="btnLogout">
-                  Cerrar sesión
-                </button>
+                <button class="dropdown-item text-danger" type="button" id="btnLogout">Cerrar sesión</button>
               </li>
             </ul>
           </div>
@@ -73,25 +62,12 @@
               <div class="row g-3">
                 <div class="col-12">
                   <label class="form-label mb-1" for="titulo">Título</label>
-                  <input
-                    id="titulo"
-                    name="titulo"
-                    class="form-control form-control-sm"
-                    placeholder="Ej. Profesor de inglés"
-                    required
-                  />
+                  <input id="titulo" name="titulo" class="form-control form-control-sm" placeholder="Ej. Profesor de inglés" required />
                 </div>
 
                 <div class="col-6">
-                  <label class="form-label mb-1" for="categoria"
-                    >Categoría</label
-                  >
-                  <select
-                    id="categoria"
-                    name="categoria"
-                    class="form-select form-select-sm"
-                    required
-                  >
+                  <label class="form-label mb-1" for="categoria">Categoría</label>
+                  <select id="categoria" name="categoria" class="form-select form-select-sm" required>
                     <option>Idiomas</option>
                     <option>Deportes</option>
                     <option>Profesiones</option>
@@ -100,12 +76,7 @@
 
                 <div class="col-6">
                   <label class="form-label mb-1" for="tipo">Tipo</label>
-                  <select
-                    id="tipo"
-                    name="tipo"
-                    class="form-select form-select-sm"
-                    required
-                  >
+                  <select id="tipo" name="tipo" class="form-select form-select-sm" required>
                     <option value="oferta">Oferta</option>
                     <option value="peticion">Petición</option>
                   </select>
@@ -115,28 +86,13 @@
               <!-- Fila 2: Fecha / Modalidad -->
               <div class="row g-3">
                 <div class="col-6">
-                  <label class="form-label mb-1" for="fecha"
-                    >Fecha (aprox.)</label
-                  >
-                  <input
-                    id="fecha"
-                    name="fecha"
-                    type="date"
-                    class="form-control form-control-sm"
-                    required
-                  />
+                  <label class="form-label mb-1" for="fecha">Fecha (aprox.)</label>
+                  <input id="fecha" name="fecha" type="date" class="form-control form-control-sm" required />
                 </div>
 
                 <div class="col-6">
-                  <label class="form-label mb-1" for="modalidad"
-                    >Modalidad</label
-                  >
-                  <select
-                    id="modalidad"
-                    name="modalidad"
-                    class="form-select form-select-sm"
-                    required
-                  >
+                  <label class="form-label mb-1" for="modalidad">Modalidad</label>
+                  <select id="modalidad" name="modalidad" class="form-select form-select-sm" required>
                     <option value="Presencial" selected>Presencial</option>
                     <option value="Online">Online</option>
                   </select>
@@ -148,95 +104,32 @@
                 <div class="col-12">
                   <label class="form-label mb-1" for="email">Email</label>
                   <!-- mejor readonly que disabled, así se envía si algún día lo necesitas -->
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    class="form-control form-control-sm"
-                    placeholder="contacto@ejemplo.com"
-                    readonly
-                  />
+                  <input id="email" name="email" type="email" class="form-control form-control-sm" placeholder="contacto@ejemplo.com" readonly />
                 </div>
               </div>
 
               <!-- Descripción + botón -->
               <div>
-                <label class="form-label mb-1" for="descripcion"
-                  >Descripción</label
-                >
-                <textarea
-                  id="descripcion"
-                  name="descripcion"
-                  class="form-control"
-                  rows="2"
-                  placeholder="Describe brevemente la oferta o petición..."
-                  required
-                ></textarea>
+                <label class="form-label mb-1" for="descripcion">Descripción</label>
+                <textarea id="descripcion" name="descripcion" class="form-control" rows="2" placeholder="Describe brevemente la oferta o petición..." required></textarea>
               </div>
 
               <div class="d-flex justify-content-end">
-                <button class="btn btn-primary btn-sm px-3" type="submit">
-                  Crear
-                </button>
+                <button class="btn btn-primary btn-sm px-3" type="submit">Crear</button>
               </div>
             </form>
 
             <!-- Canvas compacto -->
             <div class="mt-3">
-              <canvas
-                id="chartVol"
-                class="chart-sm w-100 border rounded"
-                height="120"
-              ></canvas>
+              <canvas id="chartVol" class="chart-sm w-100 border rounded" height="120"></canvas>
               <!-- Leyenda vertical, pegada a la derecha, con texto alineado -->
-              <div
-                style="
-                  margin-left: auto;
-                  width: max-content;
-                  margin-bottom: 1rem;
-                  font-size: 0.875rem;
-                  color: #6c757d;
-                "
-              >
-                <div
-                  style="
-                    display: grid;
-                    grid-template-columns: 14px auto;
-                    column-gap: 8px;
-                    align-items: center;
-                    line-height: 1.4;
-                  "
-                >
-                  <span
-                    style="
-                      background: #0d6efd;
-                      width: 14px;
-                      height: 14px;
-                      border-radius: 2px;
-                      display: block;
-                    "
-                  ></span>
+              <div style="margin-left: auto; width: max-content; margin-bottom: 1rem; font-size: 0.875rem; color: #6c757d">
+                <div style="display: grid; grid-template-columns: 14px auto; column-gap: 8px; align-items: center; line-height: 1.4">
+                  <span style="background: #0d6efd; width: 14px; height: 14px; border-radius: 2px; display: block"></span>
                   <span style="text-align: left">Peticiones</span>
                 </div>
-                <div
-                  style="
-                    display: grid;
-                    grid-template-columns: 14px auto;
-                    column-gap: 8px;
-                    align-items: center;
-                    line-height: 1.4;
-                    margin-top: 6px;
-                  "
-                >
-                  <span
-                    style="
-                      background: #ffc107;
-                      width: 14px;
-                      height: 14px;
-                      border-radius: 2px;
-                      display: block;
-                    "
-                  ></span>
+                <div style="display: grid; grid-template-columns: 14px auto; column-gap: 8px; align-items: center; line-height: 1.4; margin-top: 6px">
+                  <span style="background: #ffc107; width: 14px; height: 14px; border-radius: 2px; display: block"></span>
                   <span style="text-align: left">Ofertas</span>
                 </div>
               </div>
@@ -261,7 +154,7 @@
       </div>
     </main>
 
-     <!-- ✅ Footer pegado abajo -->
+    <!-- ✅ Footer pegado abajo -->
     <footer class="border-top py-3 small text-center text-muted mt-auto bg-white">
       © 2025 Volunet · Proyecto educativo ·
       <a href="#" class="link-secondary text-decoration-none">Aviso legal</a> ·
@@ -269,6 +162,7 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="http://localhost:4000/socket.io/socket.io.js"></script>
     <script type="module" src="./js/int_voluntariados.js"></script>
   </body>
 </html>

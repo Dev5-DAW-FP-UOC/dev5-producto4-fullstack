@@ -33,21 +33,13 @@
 
           <!-- ✅ Dropdown usuario (solo Cerrar sesión) -->
           <div class="dropdown">
-            <button
-              class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2"
-              type="button"
-              data-bs-toggle="dropdown"
-              aria-expanded="false"
-              id="userMenuBtn"
-            >
+            <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="userMenuBtn">
               <span class="user-avatar">👤</span>
               <span class="small fw-semibold" id="userBadge">-no login-</span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
               <li>
-                <button class="dropdown-item text-danger" type="button" id="btnLogout">
-                  Cerrar sesión
-                </button>
+                <button class="dropdown-item text-danger" type="button" id="btnLogout">Cerrar sesión</button>
               </li>
             </ul>
           </div>
@@ -63,9 +55,7 @@
             Conecta personas.<br />
             <span class="hero-accent">Crea impacto real</span>
           </h1>
-          <p class="hero-subtitle mb-4">
-            Volunet te ayuda a ofrecer y solicitar voluntariado de forma sencilla, colaborativa y en tiempo real.
-          </p>
+          <p class="hero-subtitle mb-4">Volunet te ayuda a ofrecer y solicitar voluntariado de forma sencilla, colaborativa y en tiempo real.</p>
 
           <div class="d-flex gap-2 flex-wrap">
             <a class="btn btn-primary px-4" href="./voluntariados.html">Explorar voluntariados</a>
@@ -88,6 +78,7 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="http://localhost:4000/socket.io/socket.io.js"></script>
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script type="module" src="./js/int_dashboard.js?v=21"></script>
 

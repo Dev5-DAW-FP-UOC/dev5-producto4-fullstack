@@ -68,9 +68,10 @@ export async function buscarUsuarioPorId(id) {
 }
 
 export async function modificarUsuario(emailOriginal, usuarioActualizado) {
-  // Si cambia el email, comprobar que no esté usado
   if (usuarioActualizado.email && usuarioActualizado.email !== emailOriginal) {
-    const existe = await Usuario.findOne({ email: usuarioActualizado.email }).lean();
+    const existe = await Usuario.findOne({
+      email: usuarioActualizado.email,
+    }).lean();
     if (existe) return false;
   }
 
@@ -106,6 +107,14 @@ export async function listarVoluntariados() {
   const vols = await Voluntariado.find().lean();
   return attachNombreUsuario(vols);
 }
+
+export async function buscarVoluntariadoPorId(id) {
+  const v = await Voluntariado.findOne({ id }).lean();
+  if (!v) return null;
+  const [enriched] = await attachNombreUsuario([v]);
+  return enriched;
+}
+
 export async function borrarVoluntariado(id) {
   const res = await Voluntariado.deleteOne({ id });
   return res.deletedCount === 1;
@@ -115,7 +124,6 @@ export async function voluntariadosPorUsuario(id_usuario) {
   const vols = await Voluntariado.find({ id_usuario }).lean();
   return attachNombreUsuario(vols);
 }
-
 
 /* ========================================================================== */
 /*  CATEGORÍAS                                                                */
@@ -134,10 +142,15 @@ export async function guardarSeleccionado(id_usuario, id_voluntariado) {
   const usuarioExiste = await Usuario.findOne({ id: id_usuario }).lean();
   if (!usuarioExiste) throw new Error("Usuario no encontrado para id_usuario=" + id_usuario);
 
-  const voluntariadoExiste = await Voluntariado.findOne({ id: id_voluntariado }).lean();
+  const voluntariadoExiste = await Voluntariado.findOne({
+    id: id_voluntariado,
+  }).lean();
   if (!voluntariadoExiste) throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
 
-  const yaExiste = await Seleccionado.findOne({ id_usuario, id_voluntariado }).lean();
+  const yaExiste = await Seleccionado.findOne({
+    id_usuario,
+    id_voluntariado,
+  }).lean();
   if (yaExiste) throw new Error("Este voluntariado ya está seleccionado por este usuario.");
 
   const id = await getSiguienteNumeroId(Seleccionado);
@@ -150,14 +163,13 @@ async function attachNombreUsuario(vols) {
   if (!Array.isArray(vols) || vols.length === 0) return [];
 
   const users = await Usuario.find({}, { id: 1, nombre: 1 }).lean();
-  const map = new Map(users.map(u => [u.id, u.nombre]));
+  const map = new Map(users.map((u) => [u.id, u.nombre]));
 
-  return vols.map(v => ({
+  return vols.map((v) => ({
     ...v,
     nombre_usuario: map.get(v.id_usuario) || "Desconocido",
   }));
 }
-
 
 export async function listarSeleccionados() {
   return Seleccionado.find().lean();
