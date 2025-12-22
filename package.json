@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/Dev5-DAW-FP-UOC/dev5-producto3-backend#readme",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "connect-mongo": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",

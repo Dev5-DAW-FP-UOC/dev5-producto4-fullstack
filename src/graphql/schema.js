@@ -134,9 +134,10 @@ const RootQuery = new GraphQLObjectType({
     voluntariados: {
       type: new GraphQLList(VoluntariadoType),
       resolve: async (_p, _a, ctx) => {
-        const u = requireAuth(ctx);
-        if (isAdmin(u)) return listarVoluntariados();
-        return voluntariadosPorUsuario(u.id);
+        // Requerir autenticación, pero mostrar todos los voluntariados
+        // a cualquier usuario autenticado (dev-friendly behaviour).
+        requireAuth(ctx);
+        return listarVoluntariados();
       },
     },
 

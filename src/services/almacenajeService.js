@@ -50,9 +50,19 @@ export async function altaUsuario(nuevoUsuario) {
   const existe = await Usuario.findOne({ email: nuevoUsuario.email }).lean();
   if (existe) throw new Error("Ya existe este usuario con este email.");
 
-  const id = await getSiguienteNumeroId(Usuario);
-  const doc = await Usuario.create({ ...nuevoUsuario, id });
-  return doc.toObject();
+  // Hashear la contraseña antes de guardar
+  try {
+    const bcryptMod = await import('bcryptjs');
+    const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
+    const saltRounds = 10;
+    const hashed = await bcrypt.hash(String(nuevoUsuario.password), saltRounds);
+    const id = await getSiguienteNumeroId(Usuario);
+    const doc = await Usuario.create({ ...nuevoUsuario, password: hashed, id });
+    return doc.toObject();
+  } catch (err) {
+    console.error('Error hashing password in altaUsuario:', err);
+    throw new Error('Error al crear usuario');
+  }
 }
 
 export async function listarUsuarios() {
@@ -75,6 +85,19 @@ export async function modificarUsuario(emailOriginal, usuarioActualizado) {
     if (existe) return false;
   }
 
+  // Si se actualiza la contraseña, hashearla antes de guardar
+  if (usuarioActualizado.password) {
+    try {
+      const bcryptMod = await import('bcryptjs');
+      const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
+      const saltRounds = 10;
+      usuarioActualizado.password = await bcrypt.hash(String(usuarioActualizado.password), saltRounds);
+    } catch (err) {
+      console.error('Error hashing password in modificarUsuario:', err);
+      return false;
+    }
+  }
+
   const res = await Usuario.updateOne({ email: emailOriginal }, { $set: usuarioActualizado });
   return res.matchedCount === 1;
 }
@@ -85,7 +108,18 @@ export async function borrarUsuario(email) {
 }
 
 export async function loginUsuario(email, password) {
-  return Usuario.findOne({ email, password }).lean();
+  // Buscar por email y comparar la contraseña con bcrypt
+  const usuario = await Usuario.findOne({ email }).lean();
+  if (!usuario) return null;
+  try {
+    const bcryptMod = await import('bcryptjs');
+    const bcrypt = bcryptMod && bcryptMod.default ? bcryptMod.default : bcryptMod;
+    const ok = await bcrypt.compare(String(password), String(usuario.password));
+    return ok ? usuario : null;
+  } catch (err) {
+    console.error('Error comparing password in loginUsuario:', err);
+    return null;
+  }
 }
 
 /* ========================================================================== */
