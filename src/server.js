@@ -11,7 +11,7 @@ import Seleccionado from "./models/Seleccionados.js";
 import Usuario from "./models/Usuarios.js";
 import Voluntariado from "./models/Voluntariados.js";
 import Categoria from "./models/Categorias.js";
-import { getDb } from "./db/mongoClient.js";
+// Using mongoose via ./db/mongoose.js for the single shared connection
 import path from "path";
 
 // Mongoose connection
@@ -225,8 +225,7 @@ app.use((err, req, res, next) => {
 });
 
 // Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
-// Conectamos a Mongo
-await getDb();
+// La conexión a MongoDB ya se realizó vía `./db/mongoose.js` más arriba.
 
 // Inicializamos datos
 await initMongoData();
