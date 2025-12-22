@@ -171,7 +171,6 @@ const RootQuery = new GraphQLObjectType({
       },
     },
 
-    // ✅ NUEVO: selecciones globales (para bloquear voluntariados en otros dashboards)
     seleccionadosGlobal: {
       type: new GraphQLList(SeleccionadoType),
       resolve: async (_p, _a, ctx) => {

@@ -165,7 +165,7 @@ export async function guardarSeleccionado(id_usuario, id_voluntariado) {
   }).lean();
   if (!voluntariadoExiste) throw new Error("Voluntariado no encontrado para id_voluntariado=" + id_voluntariado);
 
-  // ✅ EXCLUSIVIDAD GLOBAL: un voluntariado solo puede estar seleccionado por 1 usuario
+  // un voluntariado solo puede estar seleccionado por 1 usuario
   const ocupado = await Seleccionado.findOne({ id_voluntariado }).lean();
   if (ocupado) {
     if (ocupado.id_usuario === id_usuario) {
