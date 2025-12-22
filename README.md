@@ -13,26 +13,47 @@ Se añadirá comunicación asíncrona con **Fetch API** y **WebSockets** para fu
 ## Estado
 En construcción 🚧
 
-## Desarrollo local — sesión y CRUD de usuarios
+## Cómo arrancar el proyecto
 
-Por defecto la API usa sesiones en servidor. Para que el frontend use las mismas cookies de sesión y permita crear/listar/editar/borar usuarios desde la UI, acceder a la UI desde el mismo origen del servidor es la forma más sencilla:
+Hay dos formas de ejecutar la aplicación: con Docker (recomendado para entornos replicables) o de forma local con `npm`.
 
-- Abre la app en: http://localhost:4000/login.html  (el servidor ya sirve `p2-frontend/` como estático)
+1) Con Docker (construir y ejecutar):
 
-Si quieres depurar sin servir el frontend desde el mismo origen (ej. usando `Live Server` en `localhost:5500`), el navegador puede bloquear la cookie de sesión. Para pruebas rápidas puedes arrancar el servidor permitiendo el listado público de usuarios (solo para desarrollo):
+```bash
+# Construir la imagen y dependencias (desde la raíz del proyecto)
+docker-compose build
 
-Windows PowerShell:
+# Arrancar los servicios en segundo plano
+docker-compose up -d
 
-```powershell
-$env:ALLOW_PUBLIC_USERS='1'
+# Ver logs (opcional)
+docker-compose logs -f
+```
+
+Después de levantar los contenedores, la API y el servidor sirven el frontend estático. Abre en el navegador:
+
+- Frontend / UI: http://localhost:4000/
+- Endpoint GraphQL: http://localhost:4000/graphql
+
+2) Sin Docker (ejecución local con Node):
+
+```bash
+# Instala dependencias
+npm install
+
+# Arranca el servidor (escucha por defecto en 4000)
 npm start
 ```
 
-Linux / macOS:
+Abre la UI en `http://localhost:4000/` y las páginas concretas:
 
-```bash
-ALLOW_PUBLIC_USERS=1 npm start
-```
+- Login: http://localhost:4000/login.html
+- Dashboard: http://localhost:4000/dashboard.html
+- Usuarios: http://localhost:4000/usuarios.html
+- Voluntariados: http://localhost:4000/voluntariados.html
 
-Esto habilita temporalmente que la consulta `usuarios` devuelva la lista aunque no exista sesión. No uses esta opción en un entorno de producción.
+Notas rápidas:
+- El backend usa sesiones servidor-side; sirve `p2-frontend/` como estático para evitar problemas de CORS/ cookies cuando abres la UI desde el mismo origen.
+- Socket.IO está disponible y el cliente se conecta a `http://localhost:4000` (ver `p2-frontend/js/int_dashboard.js`).
+- No dejes opciones de desarrollo habilitadas (como permitir listar usuarios públicamente) en entornos de producción.
 
