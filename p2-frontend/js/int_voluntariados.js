@@ -1,280 +1,246 @@
-// js/volunteers.js
-// Persistencia con IndexedDB + gráfico Canvas + UI
-
-import { listarUsuarios, altaVoluntariado, borrarVoluntariado, listarVoluntariados, getActiveUser, borrarSeleccionados } from "./almacenaje.js";
+// js/int_voluntariados.js
+import { API } from "./services/api.js";
 
 const $ = (s, ctx = document) => ctx.querySelector(s);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
-// ---------------- UI helpers ----------------
-function shortLabel(str, max = 18) {
-  const s = String(str || "");
-  return s.length > max ? s.slice(0, max - 1) + "…" : s;
-}
+// --- ESTADO EN MEMORIA ---
+const state = { 
+  vols: [],
+  user: null 
+};
 
-function setNavbarUser(name) {
-  let badge = $("#userBadge") || document.querySelector(".navbar-text");
-  if (!badge) {
-    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
-    badge = document.createElement("span");
-    badge.className = "navbar-text small text-muted";
-    badge.id = "userBadge";
-    container?.appendChild(badge);
-  }
-  badge.textContent = name || "-no login-";
-}
+// --- HELPERS VISUALES ---
 function fmtFecha(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
+
+function categoryClass(cat) {
+  if (!cat) return "";
+  const clave = cat.trim().toLowerCase(); 
+  const mapa = {
+    "idiomas": "cat-Idiomas",
+    "deportes": "cat-Deportes",
+    "profesiones": "cat-Profesiones"
+  };
+  return mapa[clave] || "";
+}
+
 function normCat(c) {
   const v = String(c || "").toLowerCase();
-  if (v.startsWith("idio")) return "Idiomas";
-  if (v.startsWith("depo")) return "Deportes";
-  if (v.startsWith("prof")) return "Profesiones";
+  if (v.includes("idio")) return "Idiomas";
+  if (v.includes("depo")) return "Deportes";
+  if (v.includes("prof")) return "Profesiones";
   return "Idiomas";
 }
 
-function itemHTML(v) {
-  const cat = normCat(v.categoria);
-  const typeBadge = String(v.type).toLowerCase().includes("pet") ? '<span class="badge bg-primary me-2">Petición</span>' : '<span class="badge bg-warning text-dark me-2">Oferta</span>';
+function setNavbarUser(name) {
+  const badge = $("#userBadge") || document.querySelector(".navbar-text");
+  if (badge) badge.textContent = name || "-no login-";
+}
 
-  const trashBtn = `
-    <button class="btn-icon" data-action="del" title="Eliminar" aria-label="Eliminar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M3 6h18" stroke="#666" stroke-width="2" stroke-linecap="round"/>
-        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="#666" stroke-width="2"/>
-        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="#666" stroke-width="2"/>
-        <path d="M10 11v6M14 11v6" stroke="#666" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </button>
-  `;
+// --- RENDERIZADO ---
+
+function itemHTML(v) {
+  const catCls = categoryClass(v.categoria);
+  const isPeticion = String(v.type || v.tipo || "").toLowerCase().includes("pet");
+  
+  const typeBadge = isPeticion 
+    ? '<span class="badge bg-primary-subtle text-primary border border-primary-subtle me-2">Petición</span>' 
+    : '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle me-2">Oferta</span>';
 
   return `
-    <div class="item p-3 p-md-4 border rounded-3 cat-${cat}" data-id="${v.id}">
+    <div class="item p-3 p-md-4 mb-3 border-2 rounded-3 shadow-sm ${catCls}" data-id="${v.id}">
       <div class="d-flex justify-content-between align-items-start gap-3">
         <div class="flex-grow-1">
-          <div class="fw-bold mb-1">${typeBadge}${v.titulo}</div>
+          <div class="fw-bold fs-5 mb-1">${typeBadge}${v.titulo}</div>
           <div class="text-muted small mb-2">
-  ${cat}${v.creadoPor ? " · Creado por: " + v.creadoPor : ""}
-</div>
-
-          <div>${v.descripcion || v.resumen || ""}</div>
+            ${v.categoria} · por <strong>${v.nombre_usuario || 'Usuario'}</strong>
+          </div>
+          <div class="text-secondary">${v.descripcion || v.resumen || ""}</div>
         </div>
-        <div class="text-end d-flex flex-column align-items-end gap-2">
+        <div class="text-end d-flex flex-column align-items-end gap-3">
           <small class="text-muted">${fmtFecha(v.fecha)}</small>
-          ${trashBtn}
+          <button class="btn btn-outline-danger btn-sm border-0" data-action="del" title="Eliminar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         </div>
       </div>
     </div>
   `;
 }
 
-// ---------- Estado en memoria (refleja IndexedDB) ----------
-const state = { vols: [] };
-
-// ---------- Render listado + contador + gráfico ----------
-function drawList() {
+// Esta función ahora solo PINTA lo que hay en state.vols
+function renderAll() {
   const list = $("#list");
   if (!list) return;
 
   if (!state.vols.length) {
-    list.innerHTML = `<div class="text-muted">No hay registros.</div>`;
-    document.getElementById("countVol")?.replaceChildren(document.createTextNode("0 ítem(s)"));
-    drawCanvasChart();
-    return;
+    list.innerHTML = `<div class="text-muted p-4 text-center">No hay registros de voluntariado.</div>`;
+  } else {
+    // Ordenamos por fecha descendente antes de pintar
+    const sorted = [...state.vols].sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+    list.innerHTML = sorted.map(itemHTML).join("");
   }
-
-  list.innerHTML = state.vols.map(itemHTML).join("");
-  document.getElementById("countVol")?.replaceChildren(document.createTextNode(`${state.vols.length} ítem(s)`));
-
-  drawCanvasChart(); // actualizar gráfico siempre
+  
+  $("#countVol")?.replaceChildren(document.createTextNode(`${state.vols.length} ítem(s)`));
+  drawCanvasChart();
 }
+
+// Esta función CARGA los datos de la API y luego llama a render
+async function loadInitialData() {
+  try {
+    const vols = await API.getVoluntariados();
+    state.vols = vols;
+    renderAll();
+  } catch (err) {
+    console.error("Error al cargar lista:", err);
+  }
+}
+
+// --- MANEJADORES DE EVENTOS ---
 
 async function handleSubmit(e) {
   e.preventDefault();
   const f = e.currentTarget;
 
-  // 🔧 añade esta línea:
-  const active = getActiveUser();
-
   const nuevo = {
-    // id: (NO poner, lo genera IndexedDB)
-    titulo: (f.titulo?.value || "").trim(),
-    categoria: normCat(f.categoria?.value),
-    type: (f.tipo?.value || "oferta").toLowerCase(),
-    email: (f.email?.value || "").trim(),
-    descripcion: (f.descripcion?.value || "").trim(),
-    resumen: (f.descripcion?.value || "").trim(),
-    fecha: f.fecha?.value || todayISO(),
-    creadoPor: active?.nombre || "Anónimo", // ← ahora sí existe 'active'
+    titulo: f.titulo.value.trim(),
+    categoria: normCat(f.categoria.value),
+    type: f.tipo.value,
+    descripcion: f.descripcion.value.trim(),
+    resumen: f.descripcion.value.trim().substring(0, 80) + "...",
+    fecha: f.fecha.value || todayISO(),
+    modalidad: "Presencial",
+    id_usuario: Number(state.user.id)
   };
 
-  if (!nuevo.titulo || !nuevo.descripcion) {
-    alert("Rellena título y descripción.");
-    return;
-  }
-
   try {
-    await altaVoluntariado(nuevo);
+    await API.crearVoluntariado(nuevo); 
+    f.reset();
+    if ($("#fecha")) $("#fecha").value = todayISO();
+    // No hace falta llamar a renderAll aquí, el socket lo hará por nosotros
   } catch (err) {
-    console.error("IndexedDB put failed:", err);
-    alert("No se pudo guardar el voluntariado (ver consola).");
-    return;
+    alert("Error al guardar: " + err.message);
   }
-
-  await loadFromDB(); // refresca state.vols
-  drawList();
-
-  document.dispatchEvent(new CustomEvent('voluntariadoChanged'));
-
-  f.reset();
-  const ff = $("#fecha");
-  if (ff) ff.value = todayISO();
 }
 
 async function handleListClick(e) {
   const btn = e.target.closest("[data-action='del']");
   if (!btn) return;
-  const card = btn.closest("[data-id]");
-  const idStr = card?.dataset.id;
-  if (!idStr) return;
 
-  const id = Number(idStr); // id numérico (autoIncrement)
-  await borrarVoluntariado(id);
+  const id = Number(btn.closest("[data-id]").dataset.id);
+  if (confirm("¿Eliminar este voluntariado permanentemente?")) {
     try {
-    await borrarSeleccionados(id); 
-  } catch (err) {
-    //Como es probable que el voluntariado no estuviese seleccionado saltará el error
-    console.log("No fue necesario borrar de seleccionados o la clave no existía.");
+      await API.borrarVoluntariado(id);
+      // No hace falta llamar a nada aquí, el socket lo hará
+    } catch (err) {
+      alert("Error al eliminar: " + err.message);
+    }
   }
-  await loadFromDB();
-  drawList();
-
-  document.dispatchEvent(new CustomEvent('voluntariadoChanged'));
 }
 
-// ---------- Carga inicial + seed opcional desde datos.js ----------
-async function loadFromDB() {
-  state.vols = (await listarVoluntariados()).map(v => ({
-    ...v,
-    creadoPor: v.creadoPor || v.autor || "Anónimo" // <- usa autor si no existe creadoPor
-  }));
-}
-
-// ---------- Canvas ----------
-function countByType(arr) {
-  // cuenta TODO (existentes + nuevos), sin filtrar por usuario
-  const c = { oferta: 0, peticion: 0 };
-  (arr || []).forEach((v) => {
-    const t = String(v.type || v.tipo || "oferta").toLowerCase();
-    if (t.includes("pet")) c.peticion++;
-    else c.oferta++;
-  });
-  return c;
-}
-
+// --- GRÁFICO CANVAS ---
 function drawCanvasChart() {
   const canvas = document.getElementById("chartVol");
-  if (!canvas) return;
+  if (!canvas || !state.vols.length) return;
   const ctx = canvas.getContext("2d");
 
-  // Escalado HiDPI
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || canvas.width;
-  const cssH = canvas.clientHeight || canvas.height;
-  canvas.width = Math.round(cssW * dpr);
-  canvas.height = Math.round(cssH * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
 
-  // Agrupar por usuario
   const userMap = {};
-  (state.vols || []).forEach(v => {
-    const user = v.creadoPor || "Anónimo";
+  state.vols.forEach(v => {
+    const user = v.nombre_usuario || "Anónimo";
     if (!userMap[user]) userMap[user] = { oferta: 0, peticion: 0 };
-    const t = String(v.type || v.tipo || "oferta").toLowerCase();
-    if (t.includes("pet")) userMap[user].peticion++;
-    else userMap[user].oferta++;
+    const tipo = (v.tipo || v.type || "").toLowerCase();
+    if (tipo.includes("pet")) userMap[user].peticion++;
+    else if (tipo.includes("ofe")) userMap[user].oferta++;
   });
 
   const users = Object.keys(userMap);
-  const values = users.map(u => [userMap[u].oferta, userMap[u].peticion]);
+  const baseline = h - 40;
+  const chartHeight = h - 80;
+  const maxVal = Math.max(1, ...users.flatMap(u => [userMap[u].oferta, userMap[u].peticion]));
+  const scale = chartHeight / maxVal;
 
-  // Layout
-  const padX = 20, padTop = 18, padBottom = 28;
-  const W = cssW, H = cssH;
-  ctx.clearRect(0, 0, W, H);
-  ctx.font = "11px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-  ctx.textBaseline = "middle";
+  users.forEach((u, i) => {
+    const x = 50 + i * 95;
+    const barW = 25;
+    const hOfe = userMap[u].oferta * scale;
+    const hPet = userMap[u].peticion * scale;
 
-  // Escala vertical
-  const maxVal = Math.max(1, ...values.flat());
-  const scale = (H - padTop - padBottom) / maxVal;
-  const gap = 16;
-  const barW = Math.min(40, (W - padX * 2 - gap * users.length) / (users.length * 2));
-
-  // Eje X
-  ctx.strokeStyle = "#aaa";
-  ctx.beginPath();
-  ctx.moveTo(padX, H - padBottom + 0.5);
-  ctx.lineTo(W - padX, H - padBottom + 0.5);
-  ctx.stroke();
-
-  users.forEach((user, i) => {
-    const [oferta, peticion] = values[i];
-    const x0 = padX + i * (2 * barW + gap);
-
-    // Oferta (azul)
-    const h1 = oferta * scale;
-    ctx.fillStyle = "#0d6efd";
-    ctx.fillRect(x0, H - padBottom - h1, barW, h1);
-
-    // Petición (amarilla)
-    const h2 = peticion * scale;
-    ctx.fillStyle = "#ffc107";
-    ctx.fillRect(x0 + barW, H - padBottom - h2, barW, h2);
-
-    // Valores arriba
-    ctx.fillStyle = "#111";
+    ctx.fillStyle = "#3b82f6"; 
+    ctx.fillRect(x, baseline - hPet, barW, hPet);
+    ctx.fillStyle = "#f88c3f"; 
+    ctx.fillRect(x + barW + 5, baseline - hOfe, barW, hOfe);
+    
+    ctx.fillStyle = "#333";
     ctx.textAlign = "center";
-    ctx.fillText(String(oferta), x0 + barW / 2, H - padBottom - h1 - 10);
-    ctx.fillText(String(peticion), x0 + barW + barW / 2, H - padBottom - h2 - 10);
-
-    // Nombre abajo
-    ctx.fillStyle = "#555";
-    ctx.fillText(user, x0 + barW, H - padBottom + 12);
+    ctx.font = "bold 10px Arial";
+    ctx.fillText(u.substring(0, 8), x + barW, baseline + 20);
   });
 }
 
-
-// ---------- Boot ----------
+// --- INICIALIZACIÓN ---
 document.addEventListener("DOMContentLoaded", async () => {
-  // await inicializarDatos();
-
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
-
-  const form = document.getElementById("formVol");
-  if (form && active?.email) {
-    const emailInput = form.querySelector('input[name="email"], #email');
-    if (emailInput && !emailInput.value) {
-      emailInput.value = active.email;
+  try {
+    const { me } = await API.getMe();
+    if (!me) {
+      window.location.href = "login.html";
+      return;
     }
+    state.user = me;
+    setNavbarUser(me.nombre);
+
+    if ($("#email")) $("#email").value = me.email;
+    if ($("#fecha")) $("#fecha").value = todayISO();
+
+    // 1. CARGA INICIAL (Aquí es donde se traen los voluntariados)
+    await loadInitialData();
+
+    // 2. CONEXIÓN SOCKET.IO
+    // Asegúrate de que el servidor está en el puerto 4000
+    const socket = io("http://localhost:4000");
+
+    socket.on("voluntariado-creado", (nuevoVol) => {
+      if (!state.vols.find(v => v.id === nuevoVol.id)) {
+        state.vols.push(nuevoVol);
+        renderAll(); 
+      }
+    });
+
+    socket.on("voluntariado-eliminado", (idEliminado) => {
+      state.vols = state.vols.filter(v => v.id !== idEliminado);
+      renderAll();
+    });
+
+    socket.on("voluntariado-actualizado", (volEditado) => {
+      const idx = state.vols.findIndex(v => v.id === volEditado.id);
+      if (idx !== -1) {
+        state.vols[idx] = volEditado;
+        renderAll();
+      }
+    });
+
+    // 3. EVENTOS DE UI
+    $("#formVol")?.addEventListener("submit", handleSubmit);
+    $("#list")?.addEventListener("click", handleListClick);
+    window.addEventListener("resize", drawCanvasChart);
+
+  } catch (err) {
+    console.error("Error en el inicio:", err);
   }
-  const fch = $("#fecha");
-  if (fch && !fch.value) fch.value = todayISO();
-
-  await loadFromDB();
-  drawList();
-
-  $("#formVol")?.addEventListener("submit", (e) => {
-    handleSubmit(e);
-  });
-  $("#list")?.addEventListener("click", (e) => {
-    handleListClick(e);
-  });
-
-  // Redibuja el canvas al redimensionar
-  window.addEventListener("resize", () => drawCanvasChart());
 });

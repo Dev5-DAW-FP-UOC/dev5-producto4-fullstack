@@ -1,8 +1,9 @@
 // js/login.js
 //import { login, getActiveUser } from './storage.js';
-import { loguearUsuario, guardarUsuarioActivo, getActiveUser, logoutUsuario } from "./almacenaje.js";
+import { API } from "./services/api.js";
 
 const $ = (s, ctx = document) => ctx.querySelector(s);
+
 
 function showMsg(text, type = "info") {
   const box = $("#msg");
@@ -26,19 +27,25 @@ function setNavbarUser(name) {
   badge.textContent = name || "-no login-";
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  // Pintar usuario activo si existe
-  const active = getActiveUser();
-  setNavbarUser(active?.nombre);
+document.addEventListener("DOMContentLoaded", async () => {
+  // 1. Verificación inicial de sesión (Sustituye a getActiveUser de localStorage)
+  try {
+    const data = await API.getMe();
+    if (data && data.me) {
+      setNavbarUser(data.me.nombre);
+      // Opcional: si ya está logueado, mandarlo al dashboard
+      // window.location.href = "dashboard.html";
+    }
+  } catch (error) {
+    console.log("Sesión no iniciada");
+  }
 
   const form = $("#loginForm");
   if (!form) return;
 
   $("#email")?.focus();
 
-  document.getElementById("email")?.focus();
-
-  form.addEventListener("submit", (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const email = form.email.value.trim();
     const password = form.password.value;
@@ -47,19 +54,26 @@ document.addEventListener("DOMContentLoaded", () => {
       showMsg("Completa email y contraseña", "warning");
       return;
     }
-    const user = loguearUsuario(email, password);
 
-    if (!user) {
-      showMsg("Email o contraseña incorrectos", "danger");
-      return;
+    try {
+      const data = await API.login(email, password);
+      
+      const user = data.login;
+
+      if (!user) {
+        showMsg("Email o contraseña incorrectos", "danger");
+        return;
+      }
+
+      setNavbarUser(user.nombre);
+      showMsg("Inicio de sesión exitoso", "success");
+      
+      setTimeout(() => {
+        window.location.href = "dashboard.html"; 
+      }, 1000);
+
+    } catch (error) {
+      showMsg(error.message || "Error al conectar con el servidor", "danger");
     }
-
-    guardarUsuarioActivo(user.email);
-
-    setNavbarUser(user.nombre);
-
-    showMsg("Inicio de sesión exitoso", "success");
-    alert("Inicio de sesión exitoso");
-    form.reset();
   });
 });

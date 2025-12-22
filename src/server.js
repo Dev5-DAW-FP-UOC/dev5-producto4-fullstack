@@ -1,49 +1,86 @@
 // src/server.js
-import "dotenv/config"; // Carga automáticamente .env
+import "dotenv/config";
 import express from "express";
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 import { createHandler } from "graphql-http/lib/use/express";
 import { schema } from "./graphql/schema.js";
+import { connectMongoose } from "./db/mongoose.js";
 import { initMongoData } from "./services/almacenajeService.js";
+import session from "express-session";
+import cors from 'cors';
 
-/**
- * Puerto en el que escucha la API HTTP.
- * Se puede sobreescribir con la variable de entorno `PORT`.
- * @type {number|string}
- */
 const app = express();
+const httpServer = createServer(app); // Envolvemos express con un servidor HTTP real
 
-/**
- * Instancia principal de la aplicación Express.
- * @type {import("express").Express}
- */
-const PORT = process.env.PORT || 4000;
-
-// Middleware para parsear JSON en peticiones HTTP.
-app.use(express.json());
-
-/**
- * Ruta raíz de la API. Sirve como comprobación rápida
- * de que el servidor Express está levantado.
- */
-app.get("/", (_req, res) => {
-  res.send("API Volunet GraphQL funcionando");
+// Configuración de Socket.io
+const io = new Server(httpServer, {
+  cors: {
+    origin: "http://localhost:5500", // Coincide con tu frontend
+    credentials: true
+  }
 });
 
-/**
- * Endpoint GraphQL.
- * Todas las peticiones a `/graphql` se procesan mediante `graphql-http`.
- */
+// Escuchamos conexiones de Socket.io
+io.on('connection', (socket) => {
+  console.log('Nuevo cliente conectado:', socket.id);
+  socket.on('disconnect', () => console.log('Cliente desconectado'));
+});
+
+// Guardamos 'io' en la app para usarlo en los resolvers
+app.set('io', io);
+
+// MIDDLEWARES
+app.use(cors({
+  origin: 'http://localhost:5500', 
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'secreto_por_defecto',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: false,
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24
+  }
+}));
+
+// ENDPOINT GRAPHQL
 app.all(
   "/graphql",
   createHandler({
     schema,
+    context: (req) => {
+      // Pasamos req para poder acceder a app.get('io') en los resolvers
+      return {
+        req: req.raw, 
+        session: req.raw ? req.raw.session : req.session
+      };
+    },
   })
 );
 
-// Inicializamos datos en MongoDB y después arrancamos el servidor HTTP.
-await initMongoData();
+app.get("/", (_req, res) => res.send("API Volunet GraphQL + WebSockets funcionando"));
 
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
-  console.log(`Endpoint GraphQL en http://localhost:${PORT}/graphql`);
-});
+// ARRANQUE DEL SERVIDOR
+const PORT = process.env.PORT || 4000;
+
+try {
+  await connectMongoose();
+  await initMongoData();
+
+  httpServer.listen(PORT, () => {
+    console.log(`Servidor en http://localhost:${PORT}`);
+    console.log(`WebSockets habilitados en el mismo puerto`);
+  });
+
+} catch (error) {
+  console.error("Error al arrancar:", error);
+  process.exit(1);
+}

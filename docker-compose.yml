@@ -1,16 +1,16 @@
 services:
   mongo:
     image: mongo:7
-    container_name: FP066_Producto3-mongo
+    container_name: FP066_Producto4-mongo
     restart: unless-stopped
     ports:
       - "27017:27017"
     volumes:
-      - mongo_FP066_Producto3_data:/data/db
+      - mongo_FP066_Producto4_data:/data/db
 
   mongo-express:
     image: mongo-express
-    container_name: FP066_Producto3-mongo-express
+    container_name: FP066_Producto4-mongo-express
     restart: unless-stopped
     depends_on:
       - mongo
@@ -26,4 +26,4 @@ services:
       - ME_CONFIG_BASICAUTH_PASSWORD=admin
 
 volumes:
-  mongo_FP066_Producto3_data:
+  mongo_FP066_Producto4_data:
