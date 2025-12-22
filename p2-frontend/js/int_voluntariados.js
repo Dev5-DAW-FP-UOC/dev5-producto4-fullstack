@@ -1,4 +1,4 @@
-// ./js/int_voluntariados.js
+// js/int_voluntariados.js
 // Voluntariados (GraphQL) + sesión (cookie) + Canvas
 
 const API_URL = "http://localhost:4000/graphql";
@@ -38,24 +38,66 @@ async function getMe() {
   return data?.me ?? null;
 }
 
-async function listarVoluntariadosAPI(me) {
-  // ✅ GESTIÓN:
-  // - usuario normal -> solo ve sus voluntariados
-  // - admin -> ve todos (igual que en dashboard)
+async function apiLogout() {
+  const data = await fetchGraphQL(`mutation { logout }`);
+  return !!data?.logout;
+}
 
+// ---------------- Navbar (estado + logout) ----------------
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document.querySelector('a[href="./dashboard.html"]')?.closest("li");
+  const linkVoluntariados = document.querySelector('a[href="./voluntariados.html"]')?.closest("li");
+  const linkUsuarios = document.querySelector('a[href="./usuarios.html"]')?.closest("li");
+  const linkLogin = document.querySelector('a[href="./login.html"]')?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+    return;
+  }
+
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
+}
+
+function bindLogoutButton() {
+  const btn = document.getElementById("btnLogout");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      await apiLogout();
+    } catch (err) {
+      console.warn("[logout] fallo, continuo igual:", err);
+    }
+    applyNavbarState(null);
+    window.location.href = "./login.html";
+  });
+}
+
+async function listarVoluntariadosAPI(me) {
   if (me?.rol === "admin") {
     const q = `
       query {
         voluntariados {
-          id
-          type
-          titulo
-          id_usuario
-          nombre_usuario
-          modalidad
-          categoria
-          resumen
-          fecha
+          id type titulo id_usuario nombre_usuario modalidad categoria resumen fecha
         }
       }
     `;
@@ -66,15 +108,7 @@ async function listarVoluntariadosAPI(me) {
   const q = `
     query ($id_usuario:Int!) {
       voluntariadosPorUsuario(id_usuario:$id_usuario) {
-        id
-        type
-        titulo
-        id_usuario
-        nombre_usuario
-        modalidad
-        categoria
-        resumen
-        fecha
+        id type titulo id_usuario nombre_usuario modalidad categoria resumen fecha
       }
     }
   `;
@@ -108,11 +142,6 @@ async function borrarVoluntariadoAPI(id) {
 }
 
 // ---------------- UI helpers ----------------
-function setNavbarUser(name) {
-  const badge = $("#userBadge");
-  if (badge) badge.textContent = name || "-no login-";
-}
-
 function fmtFecha(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -328,6 +357,8 @@ function drawCanvasChart() {
 
 // ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
+  bindLogoutButton();
+
   try {
     state.me = await getMe();
   } catch (err) {
@@ -335,12 +366,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     state.me = null;
   }
 
+  applyNavbarState(state.me);
+
   if (!state.me) {
     window.location.href = "./login.html";
     return;
   }
-
-  setNavbarUser(state.me.nombre);
 
   const emailInput = $("#email");
   if (emailInput && state.me.email) emailInput.value = state.me.email;

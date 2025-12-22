@@ -155,6 +155,39 @@ function initRealtimeSocket(me) {
 }
 
 // ---------------- UI helpers ----------------
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document.querySelector('a[href="./dashboard.html"]')?.closest("li");
+  const linkVoluntariados = document.querySelector('a[href="./voluntariados.html"]')?.closest("li");
+  const linkUsuarios = document.querySelector('a[href="./usuarios.html"]')?.closest("li");
+  const linkLogin = document.querySelector('a[href="./login.html"]')?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+    return;
+  }
+
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
+}
+
 function setNavbarUser(name) {
   let badge = $("#userBadge") || document.querySelector(".navbar-text");
   if (!badge) {
@@ -449,6 +482,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   initRealtimeSocket(me);
 
   setNavbarUser(me.nombre);
+  applyNavbarState(me);
   bindLogoutButton();
 
   await initDashboard();

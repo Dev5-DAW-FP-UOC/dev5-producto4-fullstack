@@ -31,7 +31,7 @@
             <li class="nav-item"><a class="nav-link" href="./login.html">Login</a></li>
           </ul>
 
-          <!-- ✅ Dropdown usuario (solo Cerrar sesión) -->
+          <!-- Dropdown usuario -->
           <div class="dropdown">
             <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="userMenuBtn">
               <span class="user-avatar">👤</span>
@@ -47,7 +47,7 @@
       </div>
     </nav>
 
-    <!-- ✅ Hero / Banner -->
+    <!-- Hero -->
     <header class="container mt-4">
       <section class="hero">
         <div class="hero-content">
@@ -70,7 +70,7 @@
     <!-- Contenido dinámico -->
     <main class="container my-4 flex-grow-1" id="app"></main>
 
-    <!-- ✅ Footer pegado abajo -->
+    <!-- Footer -->
     <footer class="border-top py-3 small text-center text-muted mt-auto bg-white">
       © 2025 Volunet · Proyecto educativo ·
       <a href="#" class="link-secondary text-decoration-none">Aviso legal</a> ·
@@ -78,28 +78,9 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- ✅ Socket.IO SOLO desde el backend -->
     <script src="http://localhost:4000/socket.io/socket.io.js"></script>
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-    <script type="module" src="./js/int_dashboard.js?v=21"></script>
 
-    <!-- ✅ logout sin romper nada: si ya tienes logout en tu back, lo conectas aquí -->
-    <script type="module">
-      import { gqlFetch } from "./js/api/graphqlClient.js";
-
-      const btn = document.getElementById("btnLogout");
-      if (btn) {
-        btn.addEventListener("click", async () => {
-          try {
-            // Si tu schema tiene logout:
-            // await gqlFetch(`mutation { logout }`);
-            // Si NO tienes logout, al menos borras la cookie desde servidor cuando lo implementes.
-
-            await gqlFetch(`mutation { logout }`).catch(() => null);
-          } finally {
-            window.location.href = "./login.html";
-          }
-        });
-      }
-    </script>
+    <script type="module" src="./js/int_dashboard.js?v=22"></script>
   </body>
 </html>

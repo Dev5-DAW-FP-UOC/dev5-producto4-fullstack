@@ -1,4 +1,4 @@
-// ./js/int_usuarios.js
+// js/int_usuarios.js
 // Usuarios (GraphQL) + sesión (cookie) + UI
 
 const API_URL = "http://localhost:4000/graphql";
@@ -41,16 +41,15 @@ async function getMe() {
   return data?.me ?? null;
 }
 
+async function apiLogout() {
+  const data = await fetchGraphQL(`mutation { logout }`);
+  return !!data?.logout;
+}
+
 async function listarUsuariosAPI() {
-  // ⚠️ Esta query requiere ADMIN (schema.js -> requireAdmin)
   const q = `
     query {
-      usuarios {
-        id
-        nombre
-        email
-        rol
-      }
+      usuarios { id nombre email rol }
     }
   `;
   const data = await fetchGraphQL(q);
@@ -61,10 +60,7 @@ async function crearUsuarioAPI({ nombre, email, password, rol }) {
   const m = `
     mutation ($nombre: String!, $email: String!, $password: String!, $rol: String!) {
       crearUsuario(nombre: $nombre, email: $email, password: $password, rol: $rol) {
-        id
-        nombre
-        email
-        rol
+        id nombre email rol
       }
     }
   `;
@@ -82,12 +78,56 @@ async function borrarUsuarioAPI(email) {
   return !!data?.borrarUsuario;
 }
 
-// ---------------- UI helpers ----------------
-function setNavbarUser(name) {
-  const badge = $("#userBadge");
-  if (badge) badge.textContent = name || "-no login-";
+// ---------------- Navbar (estado + logout) ----------------
+function applyNavbarState(me) {
+  const badge = document.getElementById("userBadge");
+  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
+
+  const linkDashboard = document.querySelector('a[href="./dashboard.html"]')?.closest("li");
+  const linkVoluntariados = document.querySelector('a[href="./voluntariados.html"]')?.closest("li");
+  const linkUsuarios = document.querySelector('a[href="./usuarios.html"]')?.closest("li");
+  const linkLogin = document.querySelector('a[href="./login.html"]')?.closest("li");
+
+  const show = (el) => el && (el.style.display = "");
+  const hide = (el) => el && (el.style.display = "none");
+
+  if (!me) {
+    if (badge) badge.textContent = "-no login-";
+    hide(dropdown);
+    hide(linkDashboard);
+    hide(linkVoluntariados);
+    hide(linkUsuarios);
+    show(linkLogin);
+    return;
+  }
+
+  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
+  show(dropdown);
+
+  show(linkDashboard);
+  show(linkVoluntariados);
+  hide(linkLogin);
+
+  if (me.rol === "admin") show(linkUsuarios);
+  else hide(linkUsuarios);
 }
 
+function bindLogoutButton() {
+  const btn = document.getElementById("btnLogout");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      await apiLogout();
+    } catch (err) {
+      console.warn("[logout] fallo, continuo igual:", err);
+    }
+    applyNavbarState(null);
+    window.location.href = "./login.html";
+  });
+}
+
+// ---------------- UI helpers ----------------
 function escapeHTML(str) {
   return String(str ?? "")
     .replaceAll("&", "&amp;")
@@ -113,9 +153,7 @@ function drawTable(users) {
         <td>${escapeHTML(u.nombre || "")}</td>
         <td>${escapeHTML(u.email || "")}</td>
         <td class="text-end">
-          <button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${escapeHTML(
-            u.email
-          )}">
+          <button class="btn btn-outline-danger btn-sm" data-action="del" data-email="${escapeHTML(u.email)}">
             Borrar
           </button>
         </td>
@@ -124,7 +162,7 @@ function drawTable(users) {
     .join("");
 }
 
-function wireTableActions(getState) {
+function wireTableActions() {
   const tbody = $("#tablaUsers tbody");
   if (!tbody) return;
 
@@ -142,10 +180,7 @@ function wireTableActions(getState) {
       const deleted = await borrarUsuarioAPI(email);
       if (!deleted) throw new Error("No se pudo borrar (¿existe el usuario?)");
 
-      // Si borras tu propio usuario, el backend podría dejar sesión “inconsistente”
-      // (depende de cómo lo gestionéis). Aquí, como mínimo, refrescamos la tabla.
       showMsg("Usuario eliminado", "success");
-
       const users = await listarUsuariosAPI();
       drawTable(users);
     } catch (err) {
@@ -155,56 +190,11 @@ function wireTableActions(getState) {
   });
 }
 
-function applyNavbarState(me) {
-  const badge = document.getElementById("userBadge");
-  const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
-
-  const linkDashboard = document
-    .querySelector('a[href="./dashboard.html"]')
-    ?.closest("li");
-  const linkVoluntariados = document
-    .querySelector('a[href="./voluntariados.html"]')
-    ?.closest("li");
-  const linkUsuarios = document
-    .querySelector('a[href="./usuarios.html"]')
-    ?.closest("li");
-  const linkLogin = document
-    .querySelector('a[href="./login.html"]')
-    ?.closest("li");
-
-  const show = (el) => el && (el.style.display = "");
-  const hide = (el) => el && (el.style.display = "none");
-
-  if (!me) {
-    // ❌ NO hay sesión
-    if (badge) badge.textContent = "-no login-";
-    hide(dropdown);
-
-    hide(linkDashboard);
-    hide(linkVoluntariados);
-    hide(linkUsuarios);
-    show(linkLogin);
-
-    return;
-  }
-
-  // ✅ Hay sesión
-  if (badge) badge.textContent = me.nombre || me.email || "Usuario";
-  show(dropdown);
-
-  show(linkDashboard);
-  show(linkVoluntariados);
-  hide(linkLogin);
-
-  // 👮 Usuarios solo admin
-  if (me.rol === "admin") show(linkUsuarios);
-  else hide(linkUsuarios);
-}
-
 // ---------------- Boot ----------------
 document.addEventListener("DOMContentLoaded", async () => {
-  let me = null;
+  bindLogoutButton();
 
+  let me = null;
   try {
     me = await getMe();
   } catch (err) {
@@ -212,25 +202,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     me = null;
   }
 
+  applyNavbarState(me);
+
   if (!me) {
     window.location.href = "./login.html";
     return;
   }
 
-  setNavbarUser(me.nombre);
-
   // ✅ Si NO es admin, no tiene acceso a /usuarios
   if (me.rol !== "admin") {
-    showMsg(
-      "Acceso denegado: solo el administrador puede gestionar usuarios.",
-      "warning"
-    );
-    // Opcional: redirigir
-    // window.location.href = "./dashboard.html";
+    showMsg("Acceso denegado: solo el administrador puede gestionar usuarios.", "warning");
     return;
   }
 
-  // Cargar tabla
   try {
     const users = await listarUsuariosAPI();
     drawTable(users);
@@ -239,9 +223,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     showMsg(err.message || "No se pudieron cargar usuarios.", "danger");
   }
 
-  wireTableActions(() => ({ me }));
+  wireTableActions();
 
-  // Alta usuario
   const form = $("#formUser");
   if (form) {
     form.addEventListener("submit", async (e) => {

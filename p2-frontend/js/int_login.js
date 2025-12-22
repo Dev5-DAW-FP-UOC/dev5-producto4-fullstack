@@ -1,4 +1,4 @@
-// js/login.js
+// js/int_login.js
 import { gqlFetch } from "./api/graphqlClient.js";
 
 const $ = (s, ctx = document) => ctx.querySelector(s);
@@ -13,45 +13,38 @@ function showMsg(text, type = "info") {
     </div>`;
 }
 
-function setNavbarUser(name) {
-  const badge = $("#userBadge");
-  if (badge) badge.textContent = name || "-no login-";
+async function apiMe() {
+  const data = await gqlFetch(`query { me { id nombre email rol } }`);
+  return data.me || null;
+}
+
+async function apiLogout() {
+  const data = await gqlFetch(`mutation { logout }`);
+  return !!data.logout;
 }
 
 function applyNavbarState(me) {
   const badge = document.getElementById("userBadge");
   const dropdown = document.getElementById("userMenuBtn")?.closest(".dropdown");
 
-  const linkDashboard = document
-    .querySelector('a[href="./dashboard.html"]')
-    ?.closest("li");
-  const linkVoluntariados = document
-    .querySelector('a[href="./voluntariados.html"]')
-    ?.closest("li");
-  const linkUsuarios = document
-    .querySelector('a[href="./usuarios.html"]')
-    ?.closest("li");
-  const linkLogin = document
-    .querySelector('a[href="./login.html"]')
-    ?.closest("li");
+  const linkDashboard = document.querySelector('a[href="./dashboard.html"]')?.closest("li");
+  const linkVoluntariados = document.querySelector('a[href="./voluntariados.html"]')?.closest("li");
+  const linkUsuarios = document.querySelector('a[href="./usuarios.html"]')?.closest("li");
+  const linkLogin = document.querySelector('a[href="./login.html"]')?.closest("li");
 
   const show = (el) => el && (el.style.display = "");
   const hide = (el) => el && (el.style.display = "none");
 
   if (!me) {
-    // ❌ NO hay sesión
     if (badge) badge.textContent = "-no login-";
     hide(dropdown);
-
     hide(linkDashboard);
     hide(linkVoluntariados);
     hide(linkUsuarios);
     show(linkLogin);
-
     return;
   }
 
-  // ✅ Hay sesión
   if (badge) badge.textContent = me.nombre || me.email || "Usuario";
   show(dropdown);
 
@@ -59,12 +52,38 @@ function applyNavbarState(me) {
   show(linkVoluntariados);
   hide(linkLogin);
 
-  // 👮 Usuarios solo admin
   if (me.rol === "admin") show(linkUsuarios);
   else hide(linkUsuarios);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function bindLogoutButton() {
+  const btn = document.getElementById("btnLogout");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    try {
+      await apiLogout();
+    } catch (err) {
+      console.warn("[logout] fallo, continuo igual:", err);
+    }
+    applyNavbarState(null);
+    window.location.href = "./login.html";
+  });
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  bindLogoutButton();
+
+  // ✅ Pintar estado real al cargar
+  let me = null;
+  try {
+    me = await apiMe();
+  } catch (err) {
+    me = null;
+  }
+  applyNavbarState(me);
+
+  // Login form
   const form = $("#loginForm");
   if (!form) return;
 
@@ -89,18 +108,16 @@ document.addEventListener("DOMContentLoaded", () => {
             email
             rol
           }
-        }
-        `,
+        }`,
         { email, password }
       );
 
-      setNavbarUser(data.login.nombre);
+      applyNavbarState(data.login);
       showMsg("Inicio de sesión exitoso", "success");
 
-      // redirigir al dashboard
       setTimeout(() => {
-        window.location.href = "dashboard.html";
-      }, 500);
+        window.location.href = "./dashboard.html";
+      }, 350);
     } catch (err) {
       showMsg(err.message, "danger");
     }
