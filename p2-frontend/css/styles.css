@@ -25,7 +25,26 @@
 body { background:#f8fafc; color:#111827; font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 #app { min-height: 65vh; }
 
-/* ---------- Navbar ---------- */
+
+.navbar .nav-link, 
+.navbar .navbar-text {
+  font-size: 1.1rem !important; 
+  font-weight: 500 !important;
+  color: var(--ink-strong) !important;
+  line-height: 1.2;
+}
+
+.navbar-nav, 
+.navbar-text {
+  display: flex !important;
+  align-items: center !important;
+}
+
+
+#userBadge {
+    font-size: 1.1rem !important;
+}
+
 .navbar .navbar-brand img.brand-logo{
   height: 60px !important;
   width: auto !important;
@@ -250,4 +269,77 @@ body.volunteers-bg .panel { background: #eef3ff; }
 @media (max-width: 991.98px) {
   .scroll-panel { max-height: none; }   /* en móvil se expande */
   .chart-sm { max-width: 100%; }
+}
+
+.hero{
+  display: grid;
+  grid-template-columns: 1.1fr .9fr;
+  gap: 0;
+  border-radius: 18px;
+  overflow: hidden;              /* ✅ clave: evita “descuadre” */
+  border: 1px solid rgba(13,110,253,.10);
+  box-shadow: 0 10px 30px rgba(16,24,40,.06);
+  min-height: 320px;
+  border: none;          /* por si acaso */
+  background: #fff;
+  border: 0 !important;
+  background: #fff;
+  grid-template-columns: 55% 45%;
+}
+
+.hero-content{
+  padding: 38px 38px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.hero-title{
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.hero-accent{
+  color: #0d6efd; /* azul del logo */
+}
+
+.hero-subtitle{
+  color: #475467;
+  max-width: 52ch;
+}
+
+/* La imagen va en la derecha como background cover */
+.hero-media{
+  background-image:
+    linear-gradient(90deg, rgba(255,255,255,1) 0%, rgba(255,255,255,.55) 35%, rgba(255,255,255,0) 70%),
+    url("../assets/img/banner_voluntariado.jpg");
+  background-size: cover;
+  background-position: center;
+  min-height: 320px;
+  position: relative;
+  margin-left: -2px; 
+}
+
+/* Tapa el seam con un velo mínimo (no se nota, pero elimina la línea) */
+.hero-media::before{
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;                 /* un poco más ancho para cualquier zoom */
+  height: 100%;
+  background: linear-gradient(90deg, #fff 0%, rgba(255,255,255,0) 100%);
+  pointer-events: none;
+}
+
+/* Dropdown usuario */
+.user-avatar{
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: rgba(13,110,253,.10);
 }

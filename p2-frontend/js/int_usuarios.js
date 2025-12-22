@@ -14,16 +14,31 @@ function showMsg(text, type = "info") {
 }
 
 function setNavbarUser(name) {
-    let badge = $("#userBadge") || document.querySelector(".navbar-text");
-    if (!badge) {
-        const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
-        badge = document.createElement("span");
-        badge.className = "navbar-text small text-muted";
-        badge.id = "userBadge";
-        container?.appendChild(badge);
-    }
-    badge.textContent = name || "-no login-";
+  const badge = document.getElementById("userBadge");
+  const menu = document.getElementById("userMenu");
+
+  if (name) {
+    // Usuario logueado
+    badge.textContent = `Hola, ${name}`;
+    badge.classList.remove("text-muted", "disabled");
+    badge.style.pointerEvents = "auto"; // Permite clics
+    if (menu) menu.parentElement.style.display = "block";
+  } else {
+    // Sin login
+    badge.textContent = "-no login-";
+    badge.classList.add("text-muted", "disabled");
+    badge.style.pointerEvents = "none"; // Desactiva el menú
+    if (menu) menu.parentElement.style.display = "none";
+  }
 }
+
+document.addEventListener("click", (e) => {
+  if (e.target.id === "btnLogout" || e.target.closest("#btnLogout")) {
+    e.preventDefault();
+    localStorage.removeItem("usuario"); // O la clave que uses
+    window.location.href = "./login.html";
+  }
+});
 
 // Ahora es ASYNC porque pide datos al servidor
 async function drawTable() {

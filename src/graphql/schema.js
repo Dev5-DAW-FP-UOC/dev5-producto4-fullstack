@@ -178,11 +178,7 @@ const RootQuery = new GraphQLObjectType({
         const sUser = ctx?.session?.user;
         if (!sUser) throw new Error("No autenticado");
 
-        if (sUser.rol === "admin") {
-          return await listarSeleccionados();
-        } else {
-          return await seleccionadosPorUsuario(sUser.id);
-        }
+        return await listarSeleccionados();
       },
     },
 

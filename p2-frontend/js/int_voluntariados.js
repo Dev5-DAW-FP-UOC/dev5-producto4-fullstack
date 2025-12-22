@@ -30,18 +30,33 @@ function categoryClass(cat) {
   return mapa[clave] || "";
 }
 
-function normCat(c) {
-  const v = String(c || "").toLowerCase();
-  if (v.includes("idio")) return "Idiomas";
-  if (v.includes("depo")) return "Deportes";
-  if (v.includes("prof")) return "Profesiones";
-  return "Idiomas";
+function setNavbarUser(name) {
+  const badge = document.getElementById("userBadge");
+  const menu = document.getElementById("userMenu");
+
+  if (name) {
+    // Usuario logueado
+    badge.textContent = `Hola, ${name}`;
+    badge.classList.remove("text-muted", "disabled");
+    badge.style.pointerEvents = "auto"; // Permite clics
+    if (menu) menu.parentElement.style.display = "block";
+  } else {
+    // Sin login
+    badge.textContent = "-no login-";
+    badge.classList.add("text-muted", "disabled");
+    badge.style.pointerEvents = "none"; // Desactiva el menú
+    if (menu) menu.parentElement.style.display = "none";
+  }
 }
 
-function setNavbarUser(name) {
-  const badge = $("#userBadge") || document.querySelector(".navbar-text");
-  if (badge) badge.textContent = name || "-no login-";
-}
+document.addEventListener("click", (e) => {
+  if (e.target.id === "btnLogout" || e.target.closest("#btnLogout")) {
+    e.preventDefault();
+    localStorage.removeItem("usuario"); // O la clave que uses
+    window.location.href = "./login.html";
+  }
+});
+
 
 // --- RENDERIZADO ---
 

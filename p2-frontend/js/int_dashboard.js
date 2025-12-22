@@ -18,16 +18,31 @@ const STATE = {
 
 
 function setNavbarUser(name) {
-  let badge = $("#userBadge") || document.querySelector(".navbar-text");
-  if (!badge) {
-    const container = $("#nav") || document.querySelector(".navbar .container, .navbar");
-    badge = document.createElement("span");
-    badge.className = "navbar-text small text-muted";
-    badge.id = "userBadge";
-    container?.appendChild(badge);
+  const badge = document.getElementById("userBadge");
+  const menu = document.getElementById("userMenu");
+
+  if (name) {
+    // Usuario logueado
+    badge.textContent = `Hola, ${name}`;
+    badge.classList.remove("text-muted", "disabled");
+    badge.style.pointerEvents = "auto"; // Permite clics
+    if (menu) menu.parentElement.style.display = "block";
+  } else {
+    // Sin login
+    badge.textContent = "-no login-";
+    badge.classList.add("text-muted", "disabled");
+    badge.style.pointerEvents = "none"; // Desactiva el menú
+    if (menu) menu.parentElement.style.display = "none";
   }
-  badge.textContent = name || "-no login-";
 }
+
+document.addEventListener("click", (e) => {
+  if (e.target.id === "btnLogout" || e.target.closest("#btnLogout")) {
+    e.preventDefault();
+    localStorage.removeItem("usuario"); // O la clave que uses
+    window.location.href = "./login.html";
+  }
+});
 
 // Formatea "YYYY-MM-DD" a "dd/mm/yyyy"
 function fmtFecha(iso) {
@@ -164,18 +179,34 @@ function paintActiveTab() {
 }
 
 function draw() {
-    const grid = $("#grid");
-    if (!grid) return;
-    const listaParaMostrar = STATE.voluntariados.filter(v => {
-        const loTengoYo = STATE.seleccionados.some(sel => Number(sel.volId) === Number(v.id));
-        return !loTengoYo && !v.ocupado; 
+  const grid = $("#grid");
+  const pager = $("#pager");
+  if (!grid) return;
+
+  let listaBase;
+
+  if (STATE.filtroSeleccion !== "Todos") {
+    listaBase = STATE.seleccionados
+      .map((selObj) => STATE.voluntariados.find((v) => Number(v.id) === Number(selObj.volId)))
+      .filter((v) => v);
+  } else {
+    listaBase = STATE.voluntariados.filter((v) => {
+        const loTengoYo = STATE.seleccionados.some(s => Number(s.volId) === Number(v.id));
+        const estaOcupado = v.ocupado === true; 
+        return !loTengoYo && !estaOcupado;
     });
+  }
 
-    const filtered = applyFilters(listaParaMostrar);
-    const { items, page, pages } = paginate(filtered, STATE.page, STATE.perPage);
+  const filtered = applyFilters(listaBase || []);
+  const { items, page, pages } = paginate(filtered, STATE.page, STATE.perPage);
 
-    grid.innerHTML = items.map(cardHTML).join("") || `<div class="p-5 text-center">No hay voluntarios libres.</div>`;
-    $("#pager").innerHTML = buildPager(page, pages)
+  grid.innerHTML = items.map(cardHTML).join("") || `
+      <div class="col-12 text-center text-secondary p-5">
+        No hay voluntariados disponibles en este momento.
+      </div>`;
+
+  pager.innerHTML = buildPager(page, pages);
+  paintActiveTab();
 }
 
 function renderSeleccionados() {
@@ -227,44 +258,54 @@ async function initDashboard() {
         window.location.href = "login.html";
         return;
     }
-    STATE.user = meData.me; // Guardamos el usuario logueado
+    STATE.user = meData.me; 
     setNavbarUser(STATE.user.nombre);
-
     renderLayout($("#app"));
 
+    // Cargamos datos
     const [vols, sels] = await Promise.all([
         API.getVoluntariados(),
         API.getSeleccionados()
     ]);
 
-    STATE.voluntariados = vols;
-    STATE.seleccionados = sels.map(s => ({
-      selId: Number(s.id),             
-      volId: Number(s.id_voluntariado)  
-    }));
+    console.log("DEBUG: Todos los seleccionados de la DB:", sels);
 
-    const socket = io("http://localhost:4000");
+    // 1. MIS SELECCIONES (Lo que sale en la derecha)
+    STATE.seleccionados = sels
+        .filter(s => Number(s.id_usuario) === Number(STATE.user.id))
+        .map(s => ({
+          selId: Number(s.id),             
+          volId: Number(s.id_voluntariado)  
+        }));
 
-    socket.on("voluntariado-creado", (nuevoVol) => {
-      if (!STATE.voluntariados.find(v => v.id === nuevoVol.id)) {
-        STATE.voluntariados.push(nuevoVol);
-        draw();
-      }
+    // 2. VOLUNTARIADOS (Lo que sale en el grid central)
+    STATE.voluntariados = vols.map(v => {
+        // Buscamos si este voluntariado (v.id) aparece en la tabla de seleccionados (sels)
+        const registroEnDB = sels.find(s => Number(s.id_voluntariado) === Number(v.id));
+        
+        // ¿Está ocupado? 
+        // Sí, si existe un registro en sels Y el ID de usuario NO es el mío.
+        const ocupadoPorOtro = registroEnDB && Number(registroEnDB.id_usuario) !== Number(STATE.user.id);
+
+        return {
+            ...v,
+            ocupado: !!ocupadoPorOtro
+        };
     });
+
+    console.log("DEBUG: Voluntariados procesados:", STATE.voluntariados);
+
+    // --- Sockets ---
+    const socket = io("http://localhost:4000");
 
     socket.on("voluntariado-seleccionado", (data) => {
       if (Number(data.userId) === Number(STATE.user.id)) {
-        if (!STATE.seleccionados.some(s => s.selId === data.selId)) {
-            STATE.seleccionados.push({
-                selId: data.selId,
-                volId: data.volId
-            });
+        if (!STATE.seleccionados.some(s => Number(s.volId) === Number(data.volId))) {
+            STATE.seleccionados.push({ selId: data.selId, volId: data.volId });
         }
       }
-      const vol = STATE.voluntariados.find(v => v.id === data.volId);
-      if (vol) {
-          vol.ocupado = true; // Le ponemos una marca temporal
-      }
+      const vol = STATE.voluntariados.find(v => Number(v.id) === Number(data.volId));
+      if (vol) vol.ocupado = true; 
       draw(); 
       renderSeleccionados();
     });
@@ -273,24 +314,13 @@ async function initDashboard() {
       if (Number(data.userId) === Number(STATE.user.id)) {
         STATE.seleccionados = STATE.seleccionados.filter(s => Number(s.selId) !== Number(data.selId));
       }
-
       const vol = STATE.voluntariados.find(v => Number(v.id) === Number(data.volId));
-      if (vol) {
-        vol.ocupado = false; // Ya no está ocupado, debe volver al grid
-      } else {
-        STATE.voluntariados.push(data.voluntariado);
-      }
-      
+      if (vol) vol.ocupado = false; 
       draw(); 
       renderSeleccionados();
     });
 
-    socket.on("voluntariado-eliminado", (idVolEliminado) => {
-      STATE.voluntariados = STATE.voluntariados.filter(v => v.id !== idVolEliminado);
-      STATE.seleccionados = STATE.seleccionados.filter(s => s.volId !== idVolEliminado);
-      draw();
-      renderSeleccionados();
-    });
+    // ... (Mantén aquí tus otros sockets: creado, eliminado) ...
 
     setupEventListeners();
     draw();
@@ -299,7 +329,7 @@ async function initDashboard() {
   } catch (error) {
     console.error("Error inicializando dashboard:", error);
   }
-} // <--- CIERRE DE initDashboard (Aquí estaba el error)
+}
 
 function setupEventListeners() {
   $("#q").addEventListener("input", (e) => {
