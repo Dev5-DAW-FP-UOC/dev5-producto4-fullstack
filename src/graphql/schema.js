@@ -353,8 +353,15 @@ const RootMutation = new GraphQLObjectType({
         const guardado = await service.altaVoluntariado(datosNuevoVol);
         const io = ctx.req.app.get('io'); 
         if (io) {
-          io.emit('voluntariado-creado', guardado);
-          console.log("Evento 'voluntariado-creado' emitido");
+          const rawData = guardado.toObject ? guardado.toObject() : guardado;
+      
+          const volParaSocket = {
+            ...rawData,
+            id: (rawData.id || rawData._id || guardado._id).toString()
+          };
+        
+          io.emit('voluntariado-creado', volParaSocket);
+          console.log("Evento emitido con éxito:", volParaSocket.id);
         }
 
     return guardado;
@@ -417,7 +424,7 @@ const RootMutation = new GraphQLObjectType({
           const io = ctx.req?.app?.get('io');
           if (io) {
             io.emit('voluntariado-eliminado', id);
-            console.log(`🗑️ Voluntariado ${id} eliminado globalmente y notificado`);
+            console.log(`Voluntariado ${id} eliminado globalmente y notificado`);
           }
         }
       

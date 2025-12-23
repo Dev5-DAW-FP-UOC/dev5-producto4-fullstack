@@ -19,6 +19,11 @@ function fmtFecha(iso) {
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
+function normCat(cat) {
+  if (!cat) return "";
+  return cat.trim().toLowerCase();
+}
+
 function categoryClass(cat) {
   if (!cat) return "";
   const clave = cat.trim().toLowerCase(); 
@@ -231,14 +236,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     const socket = io("http://localhost:4000");
 
     socket.on("voluntariado-creado", (nuevoVol) => {
-      if (!state.vols.find(v => v.id === nuevoVol.id)) {
-        state.vols.push(nuevoVol);
-        renderAll(); 
+      const idLlegada = String(nuevoVol.id || nuevoVol._id);
+      const existe = state.vols.some(v => String(v.id || v._id) === idLlegada);
+      
+      if (!existe) {
+          state.vols.push({ ...nuevoVol, id: idLlegada });
+          renderAll(); 
       }
     });
 
     socket.on("voluntariado-eliminado", (idEliminado) => {
-      state.vols = state.vols.filter(v => v.id !== idEliminado);
+      const idABorrar = String(idEliminado); // Forzamos a texto
+      state.vols = state.vols.filter(v => String(v.id || v._id) !== idABorrar);
       renderAll();
     });
 

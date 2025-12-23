@@ -186,12 +186,18 @@ function draw() {
   let listaBase;
 
   if (STATE.filtroSeleccion !== "Todos") {
-    listaBase = STATE.seleccionados
-      .map((selObj) => STATE.voluntariados.find((v) => Number(v.id) === Number(selObj.volId)))
+   listaBase = STATE.seleccionados
+      .map((selObj) => {
+        return STATE.voluntariados.find((v) => {
+          const vId = v.id !== undefined ? v.id : v._id;
+          return Number(vId) === Number(selObj.volId);
+        });
+      })
       .filter((v) => v);
   } else {
     listaBase = STATE.voluntariados.filter((v) => {
-        const loTengoYo = STATE.seleccionados.some(s => Number(s.volId) === Number(v.id));
+        const vId = v.id !== undefined ? v.id : v._id;
+        const loTengoYo = STATE.seleccionados.some(s => Number(s.volId) === Number(vId));
         const estaOcupado = v.ocupado === true; 
         return !loTengoYo && !estaOcupado;
     });
@@ -320,7 +326,34 @@ async function initDashboard() {
       renderSeleccionados();
     });
 
-    // ... (Mantén aquí tus otros sockets: creado, eliminado) ...
+    socket.on("voluntariado-creado", (nuevoVol) => {
+    
+      const idReal = nuevoVol.id || nuevoVol._id;
+    
+      const idNumerico = Number(idReal);
+
+      const existe = STATE.voluntariados.some(v => Number(v.id) === idNumerico);
+
+      if (!existe) {
+          STATE.voluntariados.push({
+              ...nuevoVol,
+              id: idNumerico,
+              ocupado: false
+          });
+          draw(); 
+      }
+    });
+
+    socket.on("voluntariado-eliminado", (idEliminado) => {
+      
+      const idABorrar = Number(idEliminado);
+    
+      STATE.voluntariados = STATE.voluntariados.filter(v => Number(v.id) !== idABorrar);
+      STATE.seleccionados = STATE.seleccionados.filter(s => Number(s.volId) !== idABorrar);
+
+      draw();
+      renderSeleccionados();
+    });
 
     setupEventListeners();
     draw();
